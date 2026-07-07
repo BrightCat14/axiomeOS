@@ -14,54 +14,53 @@
 #define LSR_THR_EMPTY    (1 << 5)
 #define LSR_DATA_READY   (1 << 0)
 #define IER_RX            (1 << 0)
-
 static inline uint8_t inb(uint16_t port)
 {
     uint8_t val;
-    __asm__ volatile("inb %1, %0" : "=a"(val) : "d"(port));
+    asm volatile("inb %w1, %b0" : "=a"(val) : "Nd"(port));
     return val;
 }
 
 static inline void outb(uint16_t port, uint8_t val)
 {
-    __asm__ volatile("outb %0, %1" : : "a"(val), "d"(port));
+    asm volatile("outb %b0, %w1" : : "a"(val), "Nd"(port));
 }
 
 void serial_init(int port)
 {
     uint16_t base = (uint16_t)port;
 
-    uint8_t lcr = 0x80;
-    __asm__ volatile("outb %0, %1" : : "a"(lcr), "Nd"(base + REG_LCR));
+    // DLAB = 1
+    outb(base + REG_LCR, 0x80);
 
-    uint16_t divisor = 1;
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)(divisor & 0xFF)), "Nd"(base + REG_DATA));
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)(divisor >> 8)), "Nd"(base + REG_IER));
+    // Divisor = 1 (115200 baud)
+    outb(base + REG_DATA, 0x01);        // LSB
+    outb(base + REG_IER, 0x00);         // MSB
 
-    lcr = 0x03;
-    __asm__ volatile("outb %0, %1" : : "a"(lcr), "Nd"(base + REG_LCR));
+    // 8 bits, no parity, 1 stop bit
+    outb(base + REG_LCR, 0x03);
 
-    uint8_t fcr = 0xC7;
-    __asm__ volatile("outb %0, %1" : : "a"(fcr), "Nd"(base + REG_FCR));
+    // Enable FIFO
+    outb(base + REG_FCR, 0xC7);
 
-    uint8_t mcr = 0x0B;
-    __asm__ volatile("outb %0, %1" : : "a"(mcr), "Nd"(base + REG_MCR));
+    // Enable IRQ, RTS/DTR
+    outb(base + REG_MCR, 0x0B);
 }
 
 /* Enable the COM1 received-data interrupt and route it via the IOAPIC. */
 void serial_init_input(void)
 {
-    uint16_t base = COM1;
+    uint16_t base = PORT_COM1;
     outb(base + REG_IER, IER_RX);
-    inb(base + REG_LSR);
-    inb(base + REG_DATA);
+    inb(base + REG_LSR);  // Clear
+    inb(base + REG_DATA); // Clear
     ioapic_mask(4, 0);
 }
 
 void serial_irq_handler(void)
 {
-    uint16_t base = COM1;
-    for (;;)
+    uint16_t base = PORT_COM1;
+    while (1)
     {
         uint8_t lsr = inb(base + REG_LSR);
         if (!(lsr & LSR_DATA_READY))
@@ -77,18 +76,12 @@ void serial_putchar(int port, char c)
 
     if (c == '\n')
     {
-        uint8_t lsr;
-        do {
-            __asm__ volatile("inb %1, %0" : "=a"(lsr) : "Nd"(base + REG_LSR));
-        } while (!(lsr & LSR_THR_EMPTY));
-        __asm__ volatile("outb %0, %1" : : "a"((uint8_t)'\r'), "Nd"(base + REG_DATA));
+        while (!(inb(base + REG_LSR) & LSR_THR_EMPTY));
+        outb(base + REG_DATA, '\r');
     }
 
-    uint8_t lsr;
-    do {
-        __asm__ volatile("inb %1, %0" : "=a"(lsr) : "Nd"(base + REG_LSR));
-    } while (!(lsr & LSR_THR_EMPTY));
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)c), "Nd"(base + REG_DATA));
+    while (!(inb(base + REG_LSR) & LSR_THR_EMPTY));
+    outb(base + REG_DATA, (uint8_t)c);
 }
 
 void serial_write(int port, const char *s)
