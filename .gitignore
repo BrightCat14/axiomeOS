@@ -1,0 +1,22 @@
+# Build output
+build/
+*.iso
+
+# Disk images (generated at boot or for testing)
+disk.img
+axfs.img
+ovmf_vars.fd
+
+# ELF binaries (userspace, built from sources)
+kernel/userspace/*.elf
+
+# Editor/OS files
+*.swp
+*~
+.DS_Store
+
+DOCS/NESTED.TXT
+
+
+# Reference material
+osdev_wiki/
