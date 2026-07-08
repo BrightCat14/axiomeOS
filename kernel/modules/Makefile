@@ -11,7 +11,7 @@ CFLAGS := -ffreestanding -nostdlib -nostartfiles -mno-red-zone -mcmodel=large \
           -mno-mmx -mno-sse -mno-sse2 -O2 -g -pipe -Wall -Wextra \
           -I$(REPO_ROOT) -I$(REPO_ROOT)/kernel
 
-MODULES := e1000.kxt hello.kxt
+MODULES := e1000.kxt hello.kxt nvme.kxt
 
 .PHONY: all clean
 all: $(MODULES)

@@ -58,3 +58,4 @@ Binaries/kxtunload          0755  0  0  f  bin:kernel/userspace/kxtunload.elf
 # source tree and embedded here so init can load them at boot.
 System/Extensions/e1000.kxt 0644 0 0 f bin:kernel/modules/e1000.kxt
 System/Extensions/hello.kxt 0644 0 0 f bin:kernel/modules/hello.kxt
+System/Extensions/nvme.kxt 0644 0 0 f bin:kernel/modules/nvme.kxt

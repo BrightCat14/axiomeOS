@@ -21,7 +21,10 @@
 #define SECTORS_PER_BLOCK (AXFS_BLOCK_SIZE / 512)
 
 /* ---- node in the to-be-built tree ---- */
-#define MAX_DATA_EXTENTS 16   /* files up to 16*4096 = 64 KiB */
+/* Files may span up to AXFS_MAX_EXTENTS data blocks; match the on-disk inode
+ * limit so modules larger than 64 KiB (e.g. nvme.kxt) embed without being
+ * truncated by the formatter. */
+#define MAX_DATA_EXTENTS AXFS_MAX_EXTENTS
 struct node {
     char path[256];      /* canonical path without trailing slash */
     char name[256];
