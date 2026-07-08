@@ -16,6 +16,7 @@
 #include "fat32.h"
 #include "axiomefs.h"
 #include "socket.h"
+#include "security.h"
 
 uint64_t syscall_user_rsp;
 uint64_t current_kstack_top;
@@ -61,6 +62,16 @@ extern uint8_t _binary_userspace_rm_elf_start[];
 extern uint8_t _binary_userspace_rm_elf_end[];
 extern uint8_t _binary_userspace_touch_elf_start[];
 extern uint8_t _binary_userspace_touch_elf_end[];
+extern uint8_t _binary_userspace_whoami_elf_start[];
+extern uint8_t _binary_userspace_whoami_elf_end[];
+extern uint8_t _binary_userspace_login_elf_start[];
+extern uint8_t _binary_userspace_login_elf_end[];
+extern uint8_t _binary_userspace_su_elf_start[];
+extern uint8_t _binary_userspace_su_elf_end[];
+extern uint8_t _binary_userspace_chmod_elf_start[];
+extern uint8_t _binary_userspace_chmod_elf_end[];
+extern uint8_t _binary_userspace_chown_elf_start[];
+extern uint8_t _binary_userspace_chown_elf_end[];
 extern uint8_t _binary_userspace_vfs_test_elf_start[];
 extern uint8_t _binary_userspace_vfs_test_elf_end[];
 extern uint8_t _binary_userspace_ipc_test_elf_start[];
@@ -725,12 +736,33 @@ static const struct spawn_prog spawn_progs[] = {
     {"mv",    _binary_userspace_mv_elf_start,    _binary_userspace_mv_elf_end},
     {"rm",    _binary_userspace_rm_elf_start,    _binary_userspace_rm_elf_end},
     {"touch", _binary_userspace_touch_elf_start,  _binary_userspace_touch_elf_end},
+    {"whoami", _binary_userspace_whoami_elf_start, _binary_userspace_whoami_elf_end},
+    {"login", _binary_userspace_login_elf_start,  _binary_userspace_login_elf_end},
+    {"su", _binary_userspace_su_elf_start,        _binary_userspace_su_elf_end},
+    {"chmod", _binary_userspace_chmod_elf_start,  _binary_userspace_chmod_elf_end},
+    {"chown", _binary_userspace_chown_elf_start,  _binary_userspace_chown_elf_end},
     {"vfs_test", _binary_userspace_vfs_test_elf_start, _binary_userspace_vfs_test_elf_end},
     {"ipc_test", _binary_userspace_ipc_test_elf_start, _binary_userspace_ipc_test_elf_end},
     {"proc_test", _binary_userspace_proc_test_elf_start, _binary_userspace_proc_test_elf_end},
     {"driver_test", _binary_userspace_driver_test_elf_start, _binary_userspace_driver_test_elf_end},
     {"net_test", _binary_userspace_net_test_elf_start, _binary_userspace_net_test_elf_end},
 };
+
+/* Search PATH for `name` and exec the first match found on the filesystem.
+   Returns a pid >= 0 on success, or -1 if not found / not executable. */
+static int try_exec_path(const char *path, int argc, char **argv)
+{
+    uint8_t *buf = 0;
+    size_t sz = 0;
+    if (vfs_read_file(path, &buf, &sz) != 0)
+        return -1;
+    int pid = spawn_process_with_args(buf, sz, path, argc, argv);
+    kfree(buf);
+    return pid;
+}
+
+/* Directories searched (in order) when a command name has no '/'. */
+static const char *kpath_dirs[] = { "/", "/bin", 0 };
 
 static uint64_t sys_spawn_cmd(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
 {
@@ -765,6 +797,40 @@ static uint64_t sys_spawn_cmd(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4
     if (argc == 0)
         return (uint64_t)(-1);
 
+    /* 1) Explicit path (contains '/') -> exec directly from the VFS. */
+    {
+        const char *p = argv[0];
+        int has_slash = 0;
+        while (*p) { if (*p == '/') { has_slash = 1; break; } p++; }
+        if (has_slash)
+        {
+            int pid = try_exec_path(argv[0], argc, argv);
+            if (pid >= 0)
+                return (uint64_t)pid;
+            printk("SPAWN_CMD: cannot exec '%s'\n", argv[0]);
+            return (uint64_t)(-1);
+        }
+    }
+
+    /* 2) Search PATH on the filesystem first (disk-resident binaries win). */
+    for (int d = 0; kpath_dirs[d]; d++)
+    {
+        size_t dl = strlen(kpath_dirs[d]);
+        size_t nl = strlen(argv[0]);
+        if (dl + 1 + nl >= 256)
+            continue;
+        char full[256];
+        memcpy(full, kpath_dirs[d], dl);
+        size_t p = dl;
+        if (p > 0 && kpath_dirs[d][dl - 1] != '/')
+            full[p++] = '/';
+        memcpy(full + p, argv[0], nl + 1);
+        int pid = try_exec_path(full, argc, argv);
+        if (pid >= 0)
+            return (uint64_t)pid;
+    }
+
+    /* 3) Fallback to the embedded (kernel-linked) program table. */
     for (size_t i = 0; i < sizeof(spawn_progs) / sizeof(spawn_progs[0]); i++)
     {
         if (strcmp(spawn_progs[i].name, argv[0]) == 0)
@@ -790,6 +856,17 @@ static uint64_t sys_ps(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint6
         return 0;
     struct proc_info kbuf[64];
     int n = sched_enum_procs(kbuf, max);
+    struct thread *t = sched_current();
+    int admin = t && (t->role == ROLE_SYSTEM || (t->caps_prm & CAP_SYS_ADMIN));
+    if (!admin)
+    {
+        /* Non-admin: keep only the caller's own processes. */
+        int j = 0;
+        for (int i = 0; i < n; i++)
+            if (kbuf[i].uid == (int)t->euid)
+                kbuf[j++] = kbuf[i];
+        n = j;
+    }
     for (int i = 0; i < n; i++)
         ubuf[i] = kbuf[i];
     return (uint64_t)n;
@@ -883,27 +960,38 @@ static uint64_t sys_kill(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     int sig = (int)a2;
     if (sig <= 0 || sig >= NSIG)
         return (uint64_t)(-1);
-    if (pid > 0)
+    struct thread *self = sched_current();
+    if (self)
     {
-        struct thread *t = sched_find_by_pid(pid);
-        if (!t)
-            return (uint64_t)(-1);
-        t->sig_pending |= (1ULL << sig);
-        return 0;
-    }
-    if (pid == 0)
-    {
-        struct thread *self = sched_current();
-        if (self)
+        if (pid > 0)
+        {
+            struct thread *t = sched_find_by_pid(pid);
+            if (!t)
+                return (uint64_t)(-ESRCH);
+            /* May signal own processes; others need KILL_ANY / SIGNAL_OTHER
+               (or be the SYSTEM role, which is exempt). */
+            if (t->uid != self->euid &&
+                self->role != ROLE_SYSTEM &&
+                !(self->caps_prm & (CAP_KILL_ANY | CAP_SIGNAL_OTHER)))
+                return (uint64_t)(-EPERM);
+            t->sig_pending |= (1ULL << sig);
+            return 0;
+        }
+        if (pid == 0)
+        {
             self->sig_pending |= (1ULL << sig);
-        return 0;
-    }
-    if (pid == -1)
-    {
-        struct thread *self = sched_current();
-        struct kill_arg ka = { sig, self ? self->pid : 0 };
-        sched_foreach(kill_fn, &ka);
-        return 0;
+            return 0;
+        }
+        if (pid == -1)
+        {
+            /* Broadcast kill requires KILL_ANY (SYSTEM exempt). */
+            if (self->role != ROLE_SYSTEM && !(self->caps_prm & CAP_KILL_ANY))
+                return (uint64_t)(-EPERM);
+            struct kill_arg ka = { sig, self->pid };
+            sched_foreach(kill_fn, &ka);
+            return 0;
+        }
+        return (uint64_t)(-1);
     }
     return (uint64_t)(-1);
 }
@@ -936,6 +1024,158 @@ static uint64_t sys_sigreturn(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4
     frame[3] = sf->rsp;
     frame[4] = sf->ss;
     t->sig_mask = sf->oldmask;
+    return 0;
+}
+
+/* ================================================================ *
+ * User rank system: identity / capability syscalls
+ * (docs/user-rank-system-spec.md, sections 8 & 9)
+ * ================================================================ */
+
+static uint64_t sys_getuid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    return (uint64_t)(t ? t->uid : 0);
+}
+
+static uint64_t sys_geteuid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    return (uint64_t)(t ? t->euid : 0);
+}
+
+static uint64_t sys_getgid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    return (uint64_t)(t ? t->gid : 0);
+}
+
+static uint64_t sys_getegid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    return (uint64_t)(t ? t->egid : 0);
+}
+
+static uint64_t sys_getrole(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    return (uint64_t)(t ? (int)t->role : 0);
+}
+
+static uint64_t sys_getcap(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    return (uint64_t)(t ? t->caps_eff : 0);
+}
+
+static uint64_t sys_setuid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    if (!t)
+        return (uint64_t)-EPERM;
+    if (t->role != ROLE_SYSTEM && !(t->caps_prm & CAP_SETUID))
+        return (uint64_t)-EPERM;
+    t->uid  = (uid_t)a1;
+    t->euid = (uid_t)a1;
+    t->suid = (uid_t)a1;
+    /* recalculate role + effective capabilities from the new uid */
+    t->role = posix_uid_to_role((uid_t)a1);
+    t->caps_eff = t->caps_prm = t->caps_inh = role_caps[t->role];
+    printk("SEC: pid %d setuid -> uid=%lu role=%d\n", t->pid, (unsigned long)a1, t->role);
+    return 0;
+}
+
+static uint64_t sys_setgid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    if (!t)
+        return (uint64_t)-EPERM;
+    if (t->role != ROLE_SYSTEM && !(t->caps_prm & CAP_SETGID))
+        return (uint64_t)-EPERM;
+    t->gid  = (gid_t)a1;
+    t->egid = (gid_t)a1;
+    t->sgid = (gid_t)a1;
+    return 0;
+}
+
+static uint64_t sys_setcap(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    if (!t)
+        return (uint64_t)-EPERM;
+    if (t->role != ROLE_SYSTEM && !(t->caps_prm & CAP_SYS_ADMIN))
+        return (uint64_t)-EPERM;
+    t->caps_eff = (uint64_t)a1 & t->caps_prm;
+    return 0;
+}
+
+/* Resolve a username to its uid/gid from the in-kernel user database.
+   a1 = name (userspace ptr), a2 = uid out ptr, a3 = gid out ptr. */
+static uint64_t sys_getpwnam(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4;(void)a5;
+    const char *name = (const char *)a1;
+    uid_t *uout = (uid_t *)a2;
+    gid_t *gout = (gid_t *)a3;
+    if (!name) return (uint64_t)-1;
+    const struct user_entry *u = security_lookup_name(name);
+    if (!u) return (uint64_t)-1;
+    if (uout) *uout = u->uid;
+    if (gout) *gout = u->gid;
+    return 0;
+}
+
+static uint64_t sys_chmod(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a3;(void)a4;(void)a5;
+    char path[1024];
+    if (copy_path(a1, path, sizeof(path)) == 0)
+        return (uint64_t)-EFAULT;
+    struct thread *t = sched_current();
+    if (!t) return (uint64_t)-EPERM;
+    vfs_ensure_proc();
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (!n) return (uint64_t)-ENOENT;
+    if (n->v_uid != t->euid && t->role != ROLE_SYSTEM && !(t->caps_prm & CAP_SYS_ADMIN))
+    {
+        vfs_release(n);
+        return (uint64_t)-EPERM;
+    }
+    n->v_mode = (uint16_t)((uint64_t)a2 & 07777);
+    /* Persistence to disk (axiomefs) is not performed here; the in-memory
+       vnode reflects the new mode until the next remount. */
+    vfs_release(n);
+    return 0;
+}
+
+static uint64_t sys_chown(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4;(void)a5;
+    char path[1024];
+    if (copy_path(a1, path, sizeof(path)) == 0)
+        return (uint64_t)-EFAULT;
+    struct thread *t = sched_current();
+    if (!t) return (uint64_t)-EPERM;
+    vfs_ensure_proc();
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (!n) return (uint64_t)-ENOENT;
+    if (n->v_uid != t->euid && t->role != ROLE_SYSTEM && !(t->caps_prm & CAP_SYS_ADMIN))
+    {
+        vfs_release(n);
+        return (uint64_t)-EPERM;
+    }
+    n->v_uid = (uid_t)a2;
+    n->v_gid = (gid_t)a3;
+    vfs_release(n);
     return 0;
 }
 
@@ -1207,6 +1447,19 @@ static syscall_fn syscall_table[] = {
     [SYS_SOCKET_CLOSE]  = sys_socket_close,
     [SYS_SOCKET_LISTEN] = sys_socket_listen,
     [SYS_SOCKET_ACCEPT] = sys_socket_accept,
+    /* user rank system */
+    [SYS_GETUID]  = sys_getuid,
+    [SYS_GETEUID] = sys_geteuid,
+    [SYS_GETGID]  = sys_getgid,
+    [SYS_GETEGID] = sys_getegid,
+    [SYS_SETUID]  = sys_setuid,
+    [SYS_SETGID]  = sys_setgid,
+    [SYS_GETROLE] = sys_getrole,
+    [SYS_CHMOD]   = sys_chmod,
+    [SYS_CHOWN]   = sys_chown,
+    [SYS_GETCAP]  = sys_getcap,
+    [SYS_SETCAP]  = sys_setcap,
+    [SYS_GETPWNAM] = sys_getpwnam,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 

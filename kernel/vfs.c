@@ -67,12 +67,15 @@ static struct vfs_super *mount_find(const char *abs)
         size_t m = vstrlen(sb->mountpoint);
         if (vstrcmp(abs, sb->mountpoint) == 0)
         {
-            best = sb; bestlen = m; break;
+            /* Exact match: keep the *last* registered mount so a persistent
+               fs mounted at "/" (e.g. axiomefs) shadows the boot ramfs. */
+            if (m >= bestlen) { best = sb; bestlen = m; }
+            continue;
         }
         if (vstrncmp_prefix(abs, sb->mountpoint, m) &&
             (sb->mountpoint[m - 1] == '/' || abs[m] == '/' || m == 1))
         {
-            if (m > bestlen) { best = sb; bestlen = m; }
+            if (m >= bestlen) { best = sb; bestlen = m; }
         }
     }
     return best;
@@ -107,7 +110,21 @@ static struct vnode *ramfs_new_node(const char *name, int type)
     vstrncpy(n->name, name, MAX_NAME);
     n->type = type;
     n->sb = g_ramfs_sb;
+    /* Default ownership/permissions (overridden by ramfs_create). */
+    n->v_uid = 0;
+    n->v_gid = 0;
+    n->v_mode = (type == VFS_DIR) ? 0755 : 0644;
     return n;
+}
+
+/* Set owner + mode on a freshly created ramfs node. Owner comes from the
+   calling process (falls back to root when none). */
+static void ramfs_set_attrs(struct vnode *n, int type)
+{
+    struct thread *t = sched_current();
+    n->v_uid = t ? t->uid : 0;
+    n->v_gid = t ? t->gid : 0;
+    n->v_mode = (type == VFS_DIR) ? 0755 : 0644;
 }
 
 static void ramfs_add_child(struct vnode *parent, struct vnode *child)
@@ -271,6 +288,7 @@ static int ramfs_create(struct vfs_super *sb, const char *relpath, int type)
         return -1;
     struct vnode *n = ramfs_new_node(base, type);
     if (!n) return -1;
+    ramfs_set_attrs(n, type);
     if (type == VFS_FIFO)
     {
         struct pipe *p = kmalloc(sizeof(*p));
@@ -351,6 +369,86 @@ static struct vfs_fops g_ramfs_ops = {
 /* ================================================================ *
  * Generic VFS dispatch (used by the syscall layer)
  * ================================================================ */
+
+int vfs_path_is_under_tmp(const char *abs)
+{
+    /* abs must start with "/tmp" and either be exactly "/tmp" or have a
+       '/' after "/tmp" (i.e. "/tmp/..."). */
+    if (abs[0] != '/' || abs[1] != 't' || abs[2] != 'm' || abs[3] != 'p')
+        return 0;
+    return abs[4] == '\0' || abs[4] == '/';
+}
+
+/* Write the parent directory of `abs` into `out` (e.g. "/a/b" -> "/a").
+   "/" yields "/". */
+static void vfs_parent_path(const char *abs, char *out)
+{
+    size_t len = 0;
+    while (abs[len]) len++;
+    if (len <= 1) { out[0] = '/'; out[1] = 0; return; }
+    size_t i = len - 1;
+    while (i > 0 && abs[i] != '/') i--;
+    if (i == 0) { out[0] = '/'; out[1] = 0; return; }
+    size_t k = 0;
+    for (; k < i; k++) out[k] = abs[k];
+    out[k] = 0;
+}
+
+/* Common gate for a create/remove/write by the current process:
+   - guest may only act under /tmp
+   - otherwise needs a write capability AND write permission on `dir`
+   Returns 0 if allowed, -EPERM if denied. */
+static int vfs_gate_write_file(const char *abs, struct vnode *dir)
+{
+    struct thread *t = sched_current();
+    if (!t || t->role == ROLE_SYSTEM)
+        return 0;
+    if (t->role == ROLE_GUEST && !vfs_path_is_under_tmp(abs))
+        return -EPERM;
+    if (!(t->caps_eff & (CAP_FILE_WRITE_ANY | CAP_FILE_WRITE_SELF)))
+        return -EPERM;
+    if (dir && vfs_check_perms(dir, VFS_MAY_WRITE) != 0)
+        return -EPERM;
+    return 0;
+}
+
+/* Resolve `path` (relative to `cwd`) to an absolute path in `out`. */
+static void absolutize(const char *path, const char *cwd, char *out); /* fwd */
+
+int vfs_check_perms(struct vnode *n, int mask)
+{
+    struct thread *t = sched_current();
+    if (!t) return 0;                  /* kernel thread: bypass */
+
+    /* SYSTEM role bypasses all checks (kernel daemons only). */
+    if (t->role == ROLE_SYSTEM) return 0;
+
+    uid_t uid = t->euid;
+    gid_t gid = t->egid;
+
+    /* owner check */
+    if (uid == n->v_uid) {
+        if ((mask & VFS_MAY_READ)  && !(n->v_mode & S_IRUSR)) return -1;
+        if ((mask & VFS_MAY_WRITE) && !(n->v_mode & S_IWUSR)) return -1;
+        if ((mask & VFS_MAY_EXEC)  && !(n->v_mode & S_IXUSR)) return -1;
+        return 0;
+    }
+
+    /* group check */
+    if (gid == n->v_gid) {
+        if ((mask & VFS_MAY_READ)  && !(n->v_mode & S_IRGRP)) return -1;
+        if ((mask & VFS_MAY_WRITE) && !(n->v_mode & S_IWGRP)) return -1;
+        if ((mask & VFS_MAY_EXEC)  && !(n->v_mode & S_IXGRP)) return -1;
+        return 0;
+    }
+
+    /* other check */
+    if ((mask & VFS_MAY_READ)  && !(n->v_mode & S_IROTH)) return -1;
+    if ((mask & VFS_MAY_WRITE) && !(n->v_mode & S_IWOTH)) return -1;
+    if ((mask & VFS_MAY_EXEC)  && !(n->v_mode & S_IXOTH)) return -1;
+    return 0;
+}
+
 struct vnode *vfs_lookup(const char *path, const char *cwd)
 {
     char abs[MAX_NAME + 1];
@@ -378,7 +476,53 @@ size_t vfs_read(struct vnode *n, size_t off, void *buf, size_t len)
 size_t vfs_write(struct vnode *n, size_t off, const void *buf, size_t len)
 {
     if (!n || !n->sb || !n->sb->ops->write) return 0;
+    struct thread *t = sched_current();
+    if (t && t->role != ROLE_SYSTEM)
+    {
+        if (!(t->caps_eff & (CAP_FILE_WRITE_ANY | CAP_FILE_WRITE_SELF)))
+            return 0;
+        if (n->type == VFS_FILE && vfs_check_perms(n, VFS_MAY_WRITE) != 0)
+            return 0;
+    }
     return n->sb->ops->write(n->sb, n, off, buf, len);
+}
+
+int vfs_read_file(const char *path, uint8_t **out_buf, size_t *out_size)
+{
+    struct vnode *n = vfs_lookup(path, "/");
+    if (!n || n->type != VFS_FILE)
+    {
+        if (n) vfs_release(n);
+        return -1;
+    }
+    size_t sz = n->size;
+    if (sz == 0)
+    {
+        vfs_release(n);
+        return -1;
+    }
+    uint8_t *buf = kmalloc(sz);
+    if (!buf)
+    {
+        vfs_release(n);
+        return -1;
+    }
+    size_t done = 0;
+    while (done < sz)
+    {
+        size_t r = vfs_read(n, done, buf + done, sz - done);
+        if (r == 0) break;
+        done += r;
+    }
+    vfs_release(n);
+    if (done != sz)
+    {
+        kfree(buf);
+        return -1;
+    }
+    *out_buf = buf;
+    *out_size = sz;
+    return 0;
 }
 
 int vfs_list(const char *path, const char *cwd, struct vfs_dirent *ents, int max)
@@ -392,6 +536,16 @@ int vfs_create(const char *path, int type, const char *cwd)
 {
     char abs[MAX_NAME + 1];
     absolutize(path, cwd, abs);
+
+    /* Permission gate: need write capability + write perm on parent dir. */
+    char parent[MAX_NAME + 1];
+    vfs_parent_path(abs, parent);
+    struct vnode *pd = vfs_lookup(parent, "/");
+    int gate = vfs_gate_write_file(abs, pd);
+    vfs_release(pd);
+    if (gate != 0)
+        return -1;
+
     struct vfs_super *sb = mount_find(abs);
     if (!sb || !sb->ops->create) return -1;
     const char *rel = abs + vstrlen(sb->mountpoint);
@@ -403,6 +557,15 @@ int vfs_remove(const char *path, const char *cwd)
 {
     char abs[MAX_NAME + 1];
     absolutize(path, cwd, abs);
+
+    char parent[MAX_NAME + 1];
+    vfs_parent_path(abs, parent);
+    struct vnode *pd = vfs_lookup(parent, "/");
+    int gate = vfs_gate_write_file(abs, pd);
+    vfs_release(pd);
+    if (gate != 0)
+        return -1;
+
     struct vfs_super *sb = mount_find(abs);
     if (!sb || !sb->ops->remove) return -1;
     const char *rel = abs + vstrlen(sb->mountpoint);

@@ -13,8 +13,8 @@ void _start(void)
         "lea 8(%%rsp), %%rsi\n\t"  /* argv  */
         "call main\n\t"
         "mov %%eax, %%edi\n\t"
-        "mov $1, %%rax\n\t"        /* SYS_EXIT */
+        "mov $%c[sc], %%rax\n\t"   /* SYS_EXIT */
         "syscall\n\t"
-        : : : "rax", "rdi", "rsi", "rcx", "r11", "rdx", "memory"
+        : : [sc] "i" (SYS_EXIT) : "rax", "rdi", "rsi", "rcx", "r11", "rdx", "memory"
     );
 }

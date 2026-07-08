@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "security.h"
 
 /* ---------------------------------------------------------------- *
  * 10.1 VFS abstraction
@@ -69,6 +70,10 @@ struct vnode {
     struct vfs_super *sb;   /* owning superblock */
     void *priv;             /* fs-private inode state (e.g. first cluster) */
     uint32_t refcount;      /* open/dup references; freed by VFS when 0 */
+    /* --- POSIX ownership / permission state (user rank system) --- */
+    uid_t v_uid;            /* owner uid */
+    gid_t v_gid;            /* owner gid */
+    uint16_t v_mode;        /* permission bits (S_IRWXU | S_IRWXG | S_IROTH) */
     /* --- ramfs-only state (unused by other fs types) --- */
     uint8_t *data;          /* file content (kmalloc'd), NULL for dirs */
     size_t cap;             /* capacity of data */
@@ -94,6 +99,11 @@ struct vfs_super {
 #define O_CREAT   0x0100
 #define O_TRUNC   0x0200
 #define O_APPEND  0x0400
+
+/* VFS permission-check masks (passed to vfs_check_perms). */
+#define VFS_MAY_READ  4
+#define VFS_MAY_WRITE 2
+#define VFS_MAY_EXEC  1
 
 /* File-descriptor kinds. */
 enum fd_kind { FD_FREE = 0, FD_TTY_IN, FD_CONSOLE_OUT, FD_VNODE, FD_PIPE,
@@ -142,11 +152,24 @@ int vfs_remove(const char *path, const char *cwd);
 size_t vfs_read(struct vnode *n, size_t off, void *buf, size_t len);
 size_t vfs_write(struct vnode *n, size_t off, const void *buf, size_t len);
 
+/* Read an entire regular file (resolved from `path`) into a freshly kmalloc'd
+   buffer. Returns 0 on success (sets *out_buf / *out_size) or -1 on failure.
+   Caller must kfree(*out_buf). */
+int vfs_read_file(const char *path, uint8_t **out_buf, size_t *out_size);
+
 /* List a directory into caller-allocated dirents (max entries). Returns count. */
 int vfs_list(const char *path, const char *cwd, struct vfs_dirent *ents, int max);
 
 /* Release a vnode returned by vfs_lookup (delegates to the fs). */
 void vfs_release(struct vnode *n);
+
+/* Permission check for the current process against a vnode. Returns 0 if
+   access (per `mask`, a VFS_MAY_* combination) is allowed, -1 otherwise.
+   SYSTEM role and kernel threads bypass the check entirely. */
+int vfs_check_perms(struct vnode *n, int mask);
+
+/* True if `abs` is under /tmp (exactly "/tmp" or "/tmp/..."). */
+int vfs_path_is_under_tmp(const char *abs);
 
 /* Per-process fd table bootstrap (stdin/stdout/stderr + cwd). */
 void vfs_ensure_proc(void);

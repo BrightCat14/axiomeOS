@@ -4,6 +4,7 @@
 #include "slab.h"
 #include "printk.h"
 #include "string.h"
+#include "sched.h"
 #include <stddef.h>
 
 #define AXFS_SECTORS_PER_BLOCK (AXFS_BLOCK_SIZE / 512)
@@ -108,191 +109,14 @@ static void afs_read_inode(struct axfs_state *st, uint64_t block, struct axfs_in
     __builtin_memcpy(out, blk, sizeof(*out));
 }
 
-/* Find the parent directory of `child` and the entry name that points to it.
-   Returns 1 if found (out_parent set, name filled), or 2 if child IS the root. */
-static int afs_find_parent(struct axfs_state *st, uint64_t dir, uint64_t child,
-                            char *out_name, uint64_t *out_parent);
-static int afs_find_parent_rec(struct axfs_state *st, uint64_t dir, uint64_t child,
-                               char *out_name, uint64_t *out_parent)
-{
-    struct axfs_inode di;
-    afs_read_inode(st, dir, &di);
-    if (di.in_type != AXFS_INODE_DIR) return 0;
-    for (uint32_t e = 0; e < di.extent_count; e++)
-    {
-        uint8_t blk[AXFS_BLOCK_SIZE];
-        afs_read_block(st, di.extents[e].physical_block, blk);
-        for (int i = 0; i < 15; i++)
-        {
-            struct axfs_dent *d = (struct axfs_dent *)(blk + i * sizeof(struct axfs_dent));
-            if (d->inode_id == 0 || d->namelen == 0) continue;
-            /* never walk the self/parent dot entries (would recurse forever). */
-            if (d->namelen == 1 && d->name[0] == '.') continue;
-            if (d->namelen == 2 && d->name[0] == '.' && d->name[1] == '.') continue;
-            if (d->inode_id == child)
-            {
-                __builtin_memcpy(out_name, d->name, d->namelen);
-                out_name[d->namelen] = 0;
-                *out_parent = dir;
-                return 1;
-            }
-            if (d->type == AXFS_INODE_DIR)
-            {
-                if (afs_find_parent_rec(st, d->inode_id, child, out_name, out_parent))
-                    return 1;
-            }
-        }
-    }
-    return 0;
-}
-static int afs_find_parent(struct axfs_state *st, uint64_t dir, uint64_t child,
-                            char *out_name, uint64_t *out_parent)
-{
-    if (child == st->root_inode_block)
-    {
-        out_name[0] = 0;
-        *out_parent = st->root_inode_block;
-        return 2;
-    }
-    return afs_find_parent_rec(st, dir, child, out_name, out_parent);
-}
-
-/* Replace the reference to `old_block` (a file/dir inode) with `new_block`,
-   walking up the directory tree (CoW) to the root, updating the superblock. */
-static void afs_replace_child(struct axfs_state *st, uint64_t old_block,
-                               uint64_t new_block, uint8_t type);
-static void afs_cow_parent_entry(struct axfs_state *st, uint64_t parent_block,
-                                  const char *name, uint64_t new_child, uint8_t type)
-{
-    struct axfs_inode pi;
-    afs_read_inode(st, parent_block, &pi);
-    uint64_t new_data = 0;
-    int found_idx = -1;
-    for (uint32_t e = 0; e < pi.extent_count; e++)
-    {
-        uint8_t blk[AXFS_BLOCK_SIZE];
-        afs_read_block(st, pi.extents[e].physical_block, blk);
-        for (int i = 0; i < 15; i++)
-        {
-            struct axfs_dent *d = (struct axfs_dent *)(blk + i * sizeof(struct axfs_dent));
-            if (d->inode_id && d->namelen && __builtin_strncmp(d->name, name, d->namelen) == 0)
-            {
-                new_data = afs_alloc_block(st);
-                uint8_t nb[AXFS_BLOCK_SIZE];
-                __builtin_memcpy(nb, blk, AXFS_BLOCK_SIZE);
-                struct axfs_dent *nd = (struct axfs_dent *)(nb + i * sizeof(struct axfs_dent));
-                nd->inode_id = (uint32_t)new_child;
-                nd->type = type;
-                afs_set_checksum(nb);
-                afs_write_block(st, new_data, nb);
-                found_idx = (int)e;
-                break;
-            }
-        }
-        if (found_idx >= 0) break;
-    }
-    if (found_idx < 0) return; /* entry not found (should not happen) */
-    /* CoW the parent inode to point at the new data block. */
-    uint64_t new_parent = afs_alloc_block(st);
-    struct axfs_inode np = pi;
-    np.extents[found_idx].physical_block = new_data;
-    np.hdr.transaction_id = ++st->transaction_id;
-    np.hdr.type = AXFS_OBJ_INODE;
-    uint8_t nb[AXFS_BLOCK_SIZE];
-    __builtin_memcpy(nb, &np, sizeof(np));
-    afs_set_checksum(nb);
-    afs_write_block(st, new_parent, nb);
-    afs_replace_child(st, parent_block, new_parent, AXFS_INODE_DIR);
-}
-
-static void afs_replace_child(struct axfs_state *st, uint64_t old_block,
-                                uint64_t new_block, uint8_t type)
-{
-    if (old_block == st->root_inode_block)
-    {
-        st->root_inode_block = new_block;
-        st->transaction_id++;
-        if (st->root) st->root->priv = (void *)(uintptr_t)new_block;
-        afs_write_super(st);
-        return;
-    }
-    char name[256];
-    uint64_t parent;
-    int r = afs_find_parent(st, st->root_inode_block, old_block, name, &parent);
-    if (r == 0) return;
-    afs_cow_parent_entry(st, parent, name, new_block, type);
-}
-
-/* ---- directory mutation helpers ---- */
+/* ---- directory mutation helpers (in-place; inode blocks are stable) ---- */
 static void afs_dir_add_entry(struct axfs_state *st, uint64_t dir_block,
-                              const char *name, uint64_t child, uint8_t type)
+                               const char *name, uint64_t child, uint8_t type)
 {
     struct axfs_inode di;
     afs_read_inode(st, dir_block, &di);
-    int target = -1;
-    for (uint32_t e = 0; e < di.extent_count; e++)
-    {
-        uint8_t blk[AXFS_BLOCK_SIZE];
-        afs_read_block(st, di.extents[e].physical_block, blk);
-        for (int i = 0; i < 15; i++)
-        {
-            struct axfs_dent *d = (struct axfs_dent *)(blk + i * sizeof(struct axfs_dent));
-            if (d->inode_id == 0) { target = (int)e; goto found_slot; }
-        }
-    }
-found_slot:;
-    uint64_t new_data;
-    uint8_t nb[AXFS_BLOCK_SIZE];
-    if (target >= 0)
-    {
-        afs_read_block(st, di.extents[target].physical_block, nb);
-        new_data = afs_alloc_block(st);
-    }
-    else
-    {
-        new_data = afs_alloc_block(st);
-        __builtin_memset(nb, 0, AXFS_BLOCK_SIZE);
-        target = (int)di.extent_count;
-    }
-    int slot = -1;
-    for (int i = 0; i < 15; i++)
-    {
-        struct axfs_dent *d = (struct axfs_dent *)(nb + i * sizeof(struct axfs_dent));
-        if (d->inode_id == 0) { slot = i; break; }
-    }
-    struct axfs_dent *nd = (struct axfs_dent *)(nb + slot * sizeof(struct axfs_dent));
-    nd->inode_id = (uint32_t)child;
-    nd->type = type;
-    nd->namelen = (uint8_t)__builtin_strlen(name);
-    __builtin_memcpy(nd->name, name, nd->namelen);
-    afs_set_checksum(nb);
-    afs_write_block(st, new_data, nb);
 
-    uint64_t new_dir = afs_alloc_block(st);
-    struct axfs_inode nd2 = di;
-    if (target < (int)di.extent_count)
-        nd2.extents[target].physical_block = new_data;
-    else
-    {
-        nd2.extents[nd2.extent_count].physical_block = new_data;
-        nd2.extents[nd2.extent_count].block_count = 1;
-        nd2.extents[nd2.extent_count].reference_count = 1;
-        nd2.extent_count++;
-    }
-    nd2.hdr.transaction_id = ++st->transaction_id;
-    nd2.hdr.type = AXFS_OBJ_INODE;
-    uint8_t nblk[AXFS_BLOCK_SIZE];
-    __builtin_memcpy(nblk, &nd2, sizeof(nd2));
-    afs_set_checksum(nblk);
-    afs_write_block(st, new_dir, nblk);
-    afs_replace_child(st, dir_block, new_dir, AXFS_INODE_DIR);
-}
-
-static void afs_dir_remove_entry(struct axfs_state *st, uint64_t dir_block,
-                                 const char *name)
-{
-    struct axfs_inode di;
-    afs_read_inode(st, dir_block, &di);
+    /* Find an existing data block that still has a free slot. */
     int target = -1, slot = -1;
     for (uint32_t e = 0; e < di.extent_count; e++)
     {
@@ -301,32 +125,78 @@ static void afs_dir_remove_entry(struct axfs_state *st, uint64_t dir_block,
         for (int i = 0; i < 15; i++)
         {
             struct axfs_dent *d = (struct axfs_dent *)(blk + i * sizeof(struct axfs_dent));
-            if (d->inode_id && d->namelen && __builtin_strncmp(d->name, name, d->namelen) == 0)
-            { target = (int)e; slot = i; break; }
+            if (d->inode_id == 0) { target = (int)e; slot = i; break; }
         }
         if (target >= 0) break;
     }
-    if (target < 0) return;
-    uint8_t nb[AXFS_BLOCK_SIZE];
-    afs_read_block(st, di.extents[target].physical_block, nb);
-    struct axfs_dent *nd = (struct axfs_dent *)(nb + slot * sizeof(struct axfs_dent));
-    nd->inode_id = 0;
-    nd->namelen = 0;
-    nd->name[0] = 0;
-    afs_set_checksum(nb);
+
+    if (target >= 0)
+    {
+        /* Reuse the existing data block: write the new entry in place. */
+        uint8_t nb[AXFS_BLOCK_SIZE];
+        afs_read_block(st, di.extents[target].physical_block, nb);
+        struct axfs_dent *nd = (struct axfs_dent *)(nb + slot * sizeof(struct axfs_dent));
+        nd->inode_id = (uint32_t)child;
+        nd->type = type;
+        nd->namelen = (uint8_t)__builtin_strlen(name);
+        __builtin_memcpy(nd->name, name, nd->namelen);
+        afs_set_checksum(nb);
+        afs_write_block(st, di.extents[target].physical_block, nb);
+        return;
+    }
+
+    /* Directory is full: allocate one new data block and grow the inode
+       in place (the inode keeps the same block number). */
+    if (di.extent_count >= AXFS_MAX_EXTENTS)
+        return;
     uint64_t new_data = afs_alloc_block(st);
+    uint8_t nb[AXFS_BLOCK_SIZE];
+    __builtin_memset(nb, 0, AXFS_BLOCK_SIZE);
+    struct axfs_dent *nd = (struct axfs_dent *)nb;
+    nd->inode_id = (uint32_t)child;
+    nd->type = type;
+    nd->namelen = (uint8_t)__builtin_strlen(name);
+    __builtin_memcpy(nd->name, name, nd->namelen);
+    afs_set_checksum(nb);
     afs_write_block(st, new_data, nb);
 
-    uint64_t new_dir = afs_alloc_block(st);
-    struct axfs_inode nd2 = di;
-    nd2.extents[target].physical_block = new_data;
-    nd2.hdr.transaction_id = ++st->transaction_id;
-    nd2.hdr.type = AXFS_OBJ_INODE;
+    di.extents[di.extent_count].physical_block = new_data;
+    di.extents[di.extent_count].block_count = 1;
+    di.extents[di.extent_count].reference_count = 1;
+    di.extent_count++;
+    di.hdr.transaction_id = ++st->transaction_id;
+    di.hdr.type = AXFS_OBJ_INODE;
     uint8_t nblk[AXFS_BLOCK_SIZE];
-    __builtin_memcpy(nblk, &nd2, sizeof(nd2));
+    __builtin_memcpy(nblk, &di, sizeof(di));
     afs_set_checksum(nblk);
-    afs_write_block(st, new_dir, nblk);
-    afs_replace_child(st, dir_block, new_dir, AXFS_INODE_DIR);
+    afs_write_block(st, dir_block, nblk);
+}
+
+static void afs_dir_remove_entry(struct axfs_state *st, uint64_t dir_block,
+                                  const char *name)
+{
+    struct axfs_inode di;
+    afs_read_inode(st, dir_block, &di);
+    size_t nl = __builtin_strlen(name);
+    for (uint32_t e = 0; e < di.extent_count; e++)
+    {
+        uint8_t blk[AXFS_BLOCK_SIZE];
+        afs_read_block(st, di.extents[e].physical_block, blk);
+        for (int i = 0; i < 15; i++)
+        {
+            struct axfs_dent *d = (struct axfs_dent *)(blk + i * sizeof(struct axfs_dent));
+            if (d->inode_id && d->namelen &&
+                __builtin_strncmp(d->name, name, d->namelen) == 0 && d->namelen == nl)
+            {
+                d->inode_id = 0;
+                d->namelen = 0;
+                d->name[0] = 0;
+                afs_set_checksum(blk);
+                afs_write_block(st, di.extents[e].physical_block, blk);
+                return;
+            }
+        }
+    }
 }
 
 /* ---- VFS operations ---- */
@@ -342,6 +212,10 @@ static struct vnode *axfs_make_vnode(struct vfs_super *sb, struct axfs_state *st
     n->type = (in.in_type == AXFS_INODE_DIR) ? VFS_DIR : VFS_FILE;
     n->size = (size_t)in.size;
     n->priv = (void *)(uintptr_t)inode_block;
+    /* POSIX ownership / permission state (user rank system). */
+    n->v_uid = in.uid;
+    n->v_gid = in.gid;
+    n->v_mode = (uint16_t)(in.permissions & 07777);
     int nl = 0;
     while (nl < MAX_NAME && in.hdr.object_id && 0) nl++; /* unused */
     (void)nl;
@@ -434,17 +308,17 @@ static size_t axfs_write(struct vfs_super *sb, struct vnode *node, size_t off,
         size_t lo = (L == first) ? (off % bs) : 0;
         size_t hi = (L == last) ? ((off + len - 1) % bs) : (bs - 1);
         size_t clen = hi - lo + 1;
-        uint64_t oldphys = (L < in.extent_count) ? in.extents[L].physical_block : 0;
-        uint64_t newphys = afs_alloc_block(st);
+        uint64_t phys = (L < in.extent_count) ? in.extents[L].physical_block : 0;
+        uint64_t newphys = phys ? phys : afs_alloc_block(st);
         uint8_t blk[AXFS_BLOCK_SIZE];
         __builtin_memset(blk, 0, AXFS_BLOCK_SIZE);
-        if (oldphys) afs_read_block(st, oldphys, blk);
+        if (phys) afs_read_block(st, phys, blk);
         size_t src = L * bs + lo - off;
         __builtin_memcpy(blk + lo, (const uint8_t *)buf + src, clen);
         afs_set_checksum(blk);
         afs_write_block(st, newphys, blk);
         if (L < in.extent_count)
-            in.extents[L].physical_block = newphys;
+            in.extents[L].physical_block = newphys;   /* same block */
         else
         {
             in.extents[in.extent_count].physical_block = newphys;
@@ -458,15 +332,12 @@ static size_t axfs_write(struct vfs_super *sb, struct vnode *node, size_t off,
     in.hdr.transaction_id = ++st->transaction_id;
     in.hdr.type = AXFS_OBJ_INODE;
 
-    uint64_t newinode = afs_alloc_block(st);
     uint8_t nblk[AXFS_BLOCK_SIZE];
     __builtin_memcpy(nblk, &in, sizeof(in));
     afs_set_checksum(nblk);
-    afs_write_block(st, newinode, nblk);
-    node->priv = (void *)(uintptr_t)newinode;
+    afs_write_block(st, inode_block, nblk);   /* rewrite the SAME inode block */
     node->size = (size_t)in.size;
-    afs_replace_child(st, inode_block, newinode,
-                      (in.in_type == AXFS_INODE_DIR) ? AXFS_INODE_DIR : AXFS_INODE_FILE);
+    /* node->priv (inode block) is unchanged, so cached vnodes stay valid. */
     return len;
 }
 
@@ -588,6 +459,13 @@ static int axfs_create(struct vfs_super *sb, const char *relpath, int type)
     ci.in_type = (type == VFS_DIR) ? AXFS_INODE_DIR : AXFS_INODE_FILE;
     ci.size = 0;
     ci.extent_count = 0;
+    /* ownership / permissions (user rank system) */
+    {
+        struct thread *t = sched_current();
+        ci.uid  = t ? t->uid  : 0;
+        ci.gid  = t ? t->gid  : 0;
+        ci.permissions = (type == VFS_DIR) ? 0755 : 0644;
+    }
     uint8_t cblk[AXFS_BLOCK_SIZE];
     __builtin_memcpy(cblk, &ci, sizeof(ci));
     afs_set_checksum(cblk);

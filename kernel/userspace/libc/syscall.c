@@ -127,6 +127,10 @@ int sys_ps(void *buf, int max)
     return (int)syscall(SYS_PS, (long)buf, (long)max, 0, 0, 0, 0);
 }
 void sys_exit(int code) { syscall(SYS_EXIT, (long)code, 0, 0, 0, 0, 0); }
+int sys_getpwnam(const char *name, uid_t *uid, gid_t *gid)
+{
+    return (int)syscall(SYS_GETPWNAM, (long)name, (long)uid, (long)gid, 0, 0, 0);
+}
 
 /* ---- IPC (Phase 11) ---- */
 int ipc_create(void)
@@ -194,4 +198,30 @@ long sock_recv(int fd, void *buf, size_t max)
 int sock_close(int fd)
 {
     return (int)syscall(SYS_SOCKET_CLOSE, (long)fd, 0, 0, 0, 0, 0);
+}
+
+/* ---- user rank system ---- */
+uid_t getuid(void)  { return (uid_t)syscall(SYS_GETUID, 0,0,0,0,0,0); }
+uid_t geteuid(void) { return (uid_t)syscall(SYS_GETEUID, 0,0,0,0,0,0); }
+gid_t getgid(void)  { return (gid_t)syscall(SYS_GETGID, 0,0,0,0,0,0); }
+gid_t getegid(void) { return (gid_t)syscall(SYS_GETEGID, 0,0,0,0,0,0); }
+int  getrole(void)  { return (int)syscall(SYS_GETROLE, 0,0,0,0,0,0); }
+unsigned long long getcap(void) { return (unsigned long long)syscall(SYS_GETCAP, 0,0,0,0,0,0); }
+int  setuid(uid_t uid) { return (int)syscall(SYS_SETUID, (long)uid, 0,0,0,0,0); }
+int  setgid(gid_t gid) { return (int)syscall(SYS_SETGID, (long)gid, 0,0,0,0,0); }
+int  chmod(const char *path, unsigned int mode)
+{
+    return (int)syscall(SYS_CHMOD, (long)path, (long)mode, 0,0,0,0);
+}
+int  chown(const char *path, uid_t uid, gid_t gid)
+{
+    return (int)syscall(SYS_CHOWN, (long)path, (long)uid, (long)gid, 0,0,0);
+}
+int  sys_authenticate(const char *user, const char *pass)
+{
+    /* Userspace-side verification is not wired to a kernel syscall in this
+       minimal OS; see login.c which reads /etc/passwd directly. This helper
+       exists so tools compile and can call into a future AUTH syscall. */
+    (void)user; (void)pass;
+    return -1;
 }

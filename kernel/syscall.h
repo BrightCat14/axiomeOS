@@ -45,6 +45,20 @@
 #define SYS_SOCKET_LISTEN 39
 #define SYS_SOCKET_ACCEPT 40
 
+/* ---- user rank system (docs/user-rank-system-spec.md) ---- */
+#define SYS_GETUID   41
+#define SYS_GETEUID  42
+#define SYS_GETGID   43
+#define SYS_GETEGID  44
+#define SYS_SETUID   45
+#define SYS_SETGID   46
+#define SYS_GETROLE  47
+#define SYS_CHMOD    48
+#define SYS_CHOWN    49
+#define SYS_GETCAP   50
+#define SYS_SETCAP   51
+#define SYS_GETPWNAM 52   /* name -> uid/gid (see sys_getpwnam) */
+
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000
 #define S_IFDIR 0x4000
