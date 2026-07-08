@@ -17,6 +17,7 @@
 #include "axiomefs.h"
 #include "socket.h"
 #include "security.h"
+#include "module.h"
 
 uint64_t syscall_user_rsp;
 uint64_t current_kstack_top;
@@ -84,6 +85,11 @@ extern uint8_t _binary_userspace_net_test_elf_start[];
 extern uint8_t _binary_userspace_net_test_elf_end[];
 extern uint8_t _binary_userspace_kill_elf_start[];
 extern uint8_t _binary_userspace_kill_elf_end[];
+
+extern uint8_t _binary_userspace_kxtload_elf_start[];
+extern uint8_t _binary_userspace_kxtload_elf_end[];
+extern uint8_t _binary_userspace_kxtunload_elf_start[];
+extern uint8_t _binary_userspace_kxtunload_elf_end[];
 
 extern void syscall_entry(void);
 
@@ -746,6 +752,8 @@ static const struct spawn_prog spawn_progs[] = {
     {"driver_test", _binary_userspace_driver_test_elf_start, _binary_userspace_driver_test_elf_end},
     {"net_test", _binary_userspace_net_test_elf_start, _binary_userspace_net_test_elf_end},
     {"kill", _binary_userspace_kill_elf_start, _binary_userspace_kill_elf_end},
+    {"kxtload", _binary_userspace_kxtload_elf_start, _binary_userspace_kxtload_elf_end},
+    {"kxtunload", _binary_userspace_kxtunload_elf_start, _binary_userspace_kxtunload_elf_end},
 };
 
 static int try_exec_path(const char *path, int argc, char **argv)
@@ -1119,6 +1127,40 @@ static uint64_t sys_getpwnam(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
     return 0;
 }
 
+/* ---- loadable kernel modules (.kxt) ---- */
+
+static int module_privileged(void)
+{
+    struct thread *t = sched_current();
+    if (!t)
+        return 1;   /* kernel thread */
+    if (t->role == ROLE_SYSTEM)
+        return 1;
+    return (t->caps_prm & CAP_SYS_ADMIN) ? 1 : 0;
+}
+
+static uint64_t sys_module_load(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    if (!module_privileged())
+        return (uint64_t)(-EPERM);
+    const char *path = (const char *)a1;
+    if (!path)
+        return (uint64_t)(-EFAULT);
+    return (uint64_t)module_load_file(path);
+}
+
+static uint64_t sys_module_unload(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    if (!module_privileged())
+        return (uint64_t)(-EPERM);
+    const char *name = (const char *)a1;
+    if (!name)
+        return (uint64_t)(-EFAULT);
+    return (uint64_t)module_unload(name);
+}
+
 static uint64_t sys_chmod(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
 {
     (void)a3;(void)a4;(void)a5;
@@ -1439,6 +1481,9 @@ static syscall_fn syscall_table[] = {
     [SYS_GETCAP]  = sys_getcap,
     [SYS_SETCAP]  = sys_setcap,
     [SYS_GETPWNAM] = sys_getpwnam,
+    /* loadable kernel modules (.kxt) */
+    [SYS_MODULE_LOAD]   = sys_module_load,
+    [SYS_MODULE_UNLOAD] = sys_module_unload,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 

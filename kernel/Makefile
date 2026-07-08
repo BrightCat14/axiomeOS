@@ -106,6 +106,14 @@ USER_KILL_ELF := userspace/kill.elf
 USER_KILL_ELF_OBJ := $(BUILD_DIR)/kill_elf.o
 C_OBJS += $(USER_KILL_ELF_OBJ)
 
+USER_KXTLOAD_ELF := userspace/kxtload.elf
+USER_KXTLOAD_ELF_OBJ := $(BUILD_DIR)/kxtload_elf.o
+C_OBJS += $(USER_KXTLOAD_ELF_OBJ)
+
+USER_KXTUNLOAD_ELF := userspace/kxtunload.elf
+USER_KXTUNLOAD_ELF_OBJ := $(BUILD_DIR)/kxtunload_elf.o
+C_OBJS += $(USER_KXTUNLOAD_ELF_OBJ)
+
 USER_SYSLOGD_ELF := userspace/syslogd.elf
 USER_SYSLOGD_ELF_OBJ := $(BUILD_DIR)/syslogd_elf.o
 C_OBJS += $(USER_SYSLOGD_ELF_OBJ)
@@ -119,9 +127,14 @@ LIBC_SRCS := userspace/libc/errno.c userspace/libc/string.c \
 	userspace/libc/syscall.c userspace/libc/signal.c userspace/libc/crt0.c
 LIBC_OBJS := $(patsubst userspace/libc/%.c, $(BUILD_DIR)/libc_%.o, $(LIBC_SRCS))
 
-.PHONY: all clean
+.PHONY: all clean modules
 
-all: $(BUILD_DIR)/kernel.elf
+all: $(BUILD_DIR)/kernel.elf modules
+
+# Build loadable .kxt modules (e1000, hello, ...) into the source tree so the
+# disk image builder (mkfs_axiomefs) can embed them under /System/Extensions.
+modules:
+	$(MAKE) -C modules
 
 $(BUILD_DIR)/kernel.elf: $(C_OBJS) $(ASM_OBJS)
 	@mkdir -p $(@D)
@@ -314,6 +327,22 @@ $(USER_KILL_ELF): userspace/kill.c userspace/link.ld $(LIBC_OBJS)
 $(USER_KILL_ELF_OBJ): $(USER_KILL_ELF)
 	$(LD) -r -b binary -o $@ $<
 
+$(USER_KXTLOAD_ELF): userspace/kxtload.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/kxtload_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/kxtload_user.o $(LIBC_OBJS)
+
+$(USER_KXTLOAD_ELF_OBJ): $(USER_KXTLOAD_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_KXTUNLOAD_ELF): userspace/kxtunload.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/kxtunload_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/kxtunload_user.o $(LIBC_OBJS)
+
+$(USER_KXTUNLOAD_ELF_OBJ): $(USER_KXTUNLOAD_ELF)
+	$(LD) -r -b binary -o $@ $<
+
 $(USER_SYSLOGD_ELF): userspace/syslogd.c userspace/link.ld $(LIBC_OBJS)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/syslogd_user.o
@@ -324,3 +353,4 @@ $(USER_SYSLOGD_ELF_OBJ): $(USER_SYSLOGD_ELF)
 
 clean:
 	rm -rf $(BUILD_DIR)
+	$(MAKE) -C modules clean

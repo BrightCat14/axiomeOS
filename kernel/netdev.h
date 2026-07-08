@@ -45,4 +45,10 @@ void netdev_rx_poll(struct netdev *dev, struct mbuf *m);
 /* Network stack initialisation (creates loopback, etc.). */
 void net_init(void);
 
+/* Register a per-driver RX poll function (used by NIC modules). The kernel
+   main loop calls netdev_poll_all() instead of any hard-coded driver poll. */
+void netdev_register_poll(void (*fn)(void));
+void netdev_unregister_poll(void (*fn)(void));
+void netdev_poll_all(void);
+
 #endif

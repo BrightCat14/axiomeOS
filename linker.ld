@@ -20,6 +20,14 @@ SECTIONS
         *(.rodata*)
     } :rodata
 
+    /* Exported kernel symbols available to loadable .kxt modules. */
+    .ksymtab : AT(ADDR(.ksymtab) - KERNEL_VIRT_BASE)
+    {
+        __ksymtab_start = .;
+        KEEP(*(.ksymtab))
+        __ksymtab_end = .;
+    } :rodata
+
     .data : AT(ADDR(.data) - KERNEL_VIRT_BASE)
     {
         *(.data*)

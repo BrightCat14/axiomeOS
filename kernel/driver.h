@@ -42,6 +42,7 @@ struct driver {
 
 /* Driver registry. */
 void driver_register(struct driver *d);
+void driver_unregister(struct driver *d);
 int  driver_probe_pci(struct pci_device *pdev);
 void driver_probe_all(void);
 void driver_rescan(void);          /* 12.9 hotplug re-scan hook */

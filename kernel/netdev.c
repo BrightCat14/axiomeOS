@@ -12,6 +12,41 @@
 
 static struct netdev *g_netdevs;
 
+/* Registered NIC poll functions (populated by modules such as e1000.kxt). */
+#define NET_POLL_MAX 8
+static void (*g_net_poll[NET_POLL_MAX])(void);
+static int g_net_poll_n;
+
+void netdev_register_poll(void (*fn)(void))
+{
+    if (!fn || g_net_poll_n >= NET_POLL_MAX)
+    {
+        printk("NET: poll registration full\n");
+        return;
+    }
+    g_net_poll[g_net_poll_n++] = fn;
+}
+
+void netdev_unregister_poll(void (*fn)(void))
+{
+    for (int i = 0; i < g_net_poll_n; i++)
+    {
+        if (g_net_poll[i] == fn)
+        {
+            for (int j = i; j < g_net_poll_n - 1; j++)
+                g_net_poll[j] = g_net_poll[j + 1];
+            g_net_poll_n--;
+            return;
+        }
+    }
+}
+
+void netdev_poll_all(void)
+{
+    for (int i = 0; i < g_net_poll_n; i++)
+        g_net_poll[i]();
+}
+
 void netdev_register(struct netdev *dev)
 {
     dev->next = g_netdevs;

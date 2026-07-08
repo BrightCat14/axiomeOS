@@ -12,6 +12,8 @@
 #include "string.h"
 #include "printk.h"
 #include "spinlock.h"
+#include "driver.h"
+#include "module.h"
 
 static struct e1000_softc g_e1000_sc;
 static spinlock_t g_e1000_tx_lock = SPINLOCK_INIT;
@@ -366,3 +368,78 @@ int e1000_probe(struct pci_device *pdev)
 
     return 0;
 }
+
+/* ===========================================================================
+ * Module packaging (.kxt)
+ *
+ * Built as a freestanding, -mcmodel=large relocatable ELF.  The driver
+ * registers itself with the kernel driver framework and probes any PCI
+ * device already enumerated at boot.
+ * =========================================================================== */
+static struct driver e1000_drv = {
+    .name       = "e1000",
+    .vendor     = 0x8086,
+    .device     = DRV_ANY,
+    .pci_class  = 0x02,
+    .pci_subclass = 0x00,
+    .probe      = e1000_probe,
+};
+
+static int e1000_mod_init(void)
+{
+    /* Let the kernel main loop poll our RX ring. */
+    netdev_register_poll(e1000_rx_poll);
+
+    /* Register with the driver framework, then probe any matching PCI
+       device that was enumerated before this module loaded. */
+    driver_register(&e1000_drv);
+    for (struct pci_device *p = pci_first(); p; p = p->next)
+        driver_probe_pci(p);
+
+    printk("E1000: module initialised\n");
+    return 0;
+}
+
+static void e1000_teardown(struct e1000_softc *sc)
+{
+    if (!sc->mmio)
+        return;
+
+    /* Stop the hardware from DMA'ing into our buffers. */
+    e1000_write(sc, E1000_RCTL, e1000_read(sc, E1000_RCTL) & ~E1000_RCTL_EN);
+    e1000_write(sc, E1000_TCTL, e1000_read(sc, E1000_TCTL) & ~E1000_TCTL_EN);
+
+    /* Read back the ring base addresses before they are cleared. */
+    uint64_t rx_phys = e1000_read(sc, E1000_RDBAL);
+    uint64_t tx_phys = e1000_read(sc, E1000_TDBAL);
+
+    /* Free RX/TX mbufs back to the shared pool. */
+    for (int i = 0; i < E1000_RX_DESC_COUNT; i++)
+        if (sc->rx_mbufs[i]) { mbuf_free(sc->rx_mbufs[i]); sc->rx_mbufs[i] = 0; }
+    for (int i = 0; i < E1000_TX_DESC_COUNT; i++)
+        if (sc->tx_mbufs[i]) { mbuf_free(sc->tx_mbufs[i]); sc->tx_mbufs[i] = 0; }
+
+    /* Unmap and free the descriptor ring pages. */
+    if (sc->rx_ring) { vmm_unmap_page((uint64_t)sc->rx_ring); pmm_free_frame((void *)(uintptr_t)rx_phys); sc->rx_ring = 0; }
+    if (sc->tx_ring) { vmm_unmap_page((uint64_t)sc->tx_ring); pmm_free_frame((void *)(uintptr_t)tx_phys); sc->tx_ring = 0; }
+
+    /* Unmap and free the MMIO BAR. */
+    uint64_t nframes = (sc->mmio_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    vmm_unmap_page((uint64_t)sc->mmio);
+    pmm_free_frames((void *)(uintptr_t)sc->mmio_phys, nframes);
+    sc->mmio = 0;
+}
+
+static void e1000_mod_exit(void)
+{
+    /* Stop the kernel main loop from polling our RX ring before the code
+       and data pages are freed, otherwise netdev_poll_all() dereferences a
+       dangling function pointer. */
+    netdev_unregister_poll(e1000_rx_poll);
+    driver_unregister(&e1000_drv);
+    e1000_teardown(&g_e1000_sc);
+    printk("E1000: module unloaded\n");
+}
+
+MODULE_INIT(e1000_mod_init);
+MODULE_EXIT(e1000_mod_exit);

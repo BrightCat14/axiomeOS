@@ -27,7 +27,7 @@
 #include "loopback.h"
 #include "tcp.h"
 #include "arp.h"
-#include "e1000.h"
+#include "module.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -163,6 +163,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     driver_init();
     devfs_init();
+    module_init_subsys();
 
     fat32_automount();
 
@@ -202,7 +203,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     while (1)
     {
         softirq_poll();
-        e1000_rx_poll();
+        netdev_poll_all();
 
         yield_count++;
         if ((yield_count % 50) == 0)
