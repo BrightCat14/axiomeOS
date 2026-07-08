@@ -143,6 +143,10 @@ int vfs_umount(const char *mountpoint);
 /* Resolve a (possibly relative) path into a vnode. Returns NULL if missing. */
 struct vnode *vfs_lookup(const char *path, const char *cwd);
 
+/* Rewrite a friendly alias (/bin, /home, /dev, /tmp) to its canonical
+   PascalCase form in-place. Called from the central path resolvers. */
+void vfs_apply_aliases(char *abs);
+
 /* Create a node of given type at path (parent must already exist). 0/-1. */
 int vfs_create(const char *path, int type, const char *cwd);
 
@@ -168,7 +172,8 @@ void vfs_release(struct vnode *n);
    SYSTEM role and kernel threads bypass the check entirely. */
 int vfs_check_perms(struct vnode *n, int mask);
 
-/* True if `abs` is under /tmp (exactly "/tmp" or "/tmp/..."). */
+/* True if `abs` (canonical) is under the temp dir (exactly "/Temporary" or
+   "/Temporary/..."). Accepts "/tmp" too during any transition. */
 int vfs_path_is_under_tmp(const char *abs);
 
 /* Per-process fd table bootstrap (stdin/stdout/stderr + cwd). */

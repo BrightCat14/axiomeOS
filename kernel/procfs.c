@@ -19,12 +19,12 @@ static void pcpy(char *dst, const char *src, size_t max)
 /* ---------------------------------------------------------------- *
  * 11.7 /proc virtual filesystem
  *
- * A synthetic filesystem mounted at "/proc" that exposes per-process
- * information.  Tree:
- *   /proc/<pid>/status     process state (pid, ppid, state, name)
- *   /proc/<pid>/cmdline    process name (NUL-terminated)
- *   /proc/self             alias for the caller's own /proc/<pid>
- *   /proc/meminfo          physical memory totals
+ * A synthetic filesystem mounted at "/System/Process" (the "/proc" alias
+ * resolves here) that exposes per-process information.  Tree:
+ *   /System/Process/<pid>/status     process state (pid, ppid, state, name)
+ *   /System/Process/<pid>/cmdline    process name (NUL-terminated)
+ *   /System/Process/self             alias for the caller's own pid dir
+ *   /System/Process/meminfo          physical memory totals
  *
  * Every lookup synthesizes a fresh vnode (freed by the fs on release),
  * carrying a small descriptor in `priv`.
@@ -331,7 +331,7 @@ void procfs_init(void)
 {
     struct vnode *root = proc_new(PROC_ROOT, 0, "/");
     if (!root) return;
-    struct vfs_super *sb = vfs_mount("/proc", FS_PROC, &g_proc_ops, 0);
+    struct vfs_super *sb = vfs_mount("/System/Process", FS_PROC, &g_proc_ops, 0);
     if (!sb)
     {
         proc_inode_free(root);

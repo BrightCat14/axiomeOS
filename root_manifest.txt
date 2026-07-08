@@ -4,46 +4,48 @@
 #   dir paths may end with '/'
 #   inline file content follows a 'content:' token (use \n for newlines)
 
-etc/           0755  0  0  d
-etc/passwd     0644  0  0  f  content:root:x:0:0:system:/root:/bin/sh\nalice:x:1000:1000:user:/home/alice:/bin/sh\nguest:x:65534:65534:guest:/tmp:/sbin/nologin\n
-etc/axiome-init.conf 0644 0 0 f bin:config/axiome-init.conf
+System/                    0755  0  0  d
+System/Configuration/       0755  0  0  d
+System/Configuration/passwd 0644  0  0  f  content:root:x:0:0:system:/root:/bin/sh\nalice:x:1000:1000:user:/Users/alice:/bin/sh\nguest:x:65534:65534:guest:/Temporary:/sbin/nologin\n
+System/Configuration/axiome-init.conf 0644 0 0 f bin:config/axiome-init.conf
+System/Configuration/journal.log 0644 0 0 f content:
+System/Variable/            0755  0  0  d
+System/Variable/log/        0755 0  0  d
+System/Variable/run/        0755 0  0  d
+System/Variable/log/axiome-init.log 0644 0 0 f content:
+System/Variable/log/kernel.log       0644  0  0  f content:
+System/Variable/log/syslog.log       0644  0  0  f content:
+System/Process/             0555  0  0  d
 
-var/           0755  0  0  d
-var/log/       0755 0  0  d
-var/run/       0755 0  0  d
-var/log/axiome-init.log 0644 0 0 f content:
-var/log/kernel.log       0644 0 0 f content:
-var/log/syslog.log       0644 0 0 f content:
+Users/          0755  0  0  d
+Users/alice/    0755 1000 1000 d
+Temporary/      1777  0  0  d
+Devices/        0755 0  0  d
+boot/           0755 0  0  d
+Binaries/       0755 0  0  d
 
-home/          0755  0  0  d
-home/alice/    0755 1000 1000 d
-tmp/           1777  0  0  d
-dev/           0755  0  0  d
-proc/          0555  0  0  d
-boot/          0755  0  0  d
-bin/           0755  0  0  d
-
-# User binaries (embedded host ELFs, written verbatim under /bin).
+# User binaries (embedded host ELFs, written verbatim under /Binaries).
+# Friendly /bin remains a read-only alias that resolves to /Binaries.
 # Host paths are relative to the repository root and resolved at mkfs time.
-bin/init           0755  0  0  f  bin:kernel/userspace/init.elf
-bin/sh             0755  0  0  f  bin:kernel/userspace/sh.elf
-bin/syslogd        0755  0  0  f  bin:kernel/userspace/syslogd.elf
-bin/ls             0755  0  0  f  bin:kernel/userspace/ls.elf
-bin/cat            0755  0  0  f  bin:kernel/userspace/cat.elf
-bin/echo           0755  0  0  f  bin:kernel/userspace/echo.elf
-bin/mkdir          0755  0  0  f  bin:kernel/userspace/mkdir.elf
-bin/cp             0755  0  0  f  bin:kernel/userspace/cp.elf
-bin/mv             0755  0  0  f  bin:kernel/userspace/mv.elf
-bin/rm             0755  0  0  f  bin:kernel/userspace/rm.elf
-bin/touch          0755  0  0  f  bin:kernel/userspace/touch.elf
-bin/whoami         0755  0  0  f  bin:kernel/userspace/whoami.elf
-bin/login          0755  0  0  f  bin:kernel/userspace/login.elf
-bin/su             0755  0  0  f  bin:kernel/userspace/su.elf
-bin/chmod          0755  0  0  f  bin:kernel/userspace/chmod.elf
-bin/chown          0755  0  0  f  bin:kernel/userspace/chown.elf
-bin/hello          0755  0  0  f  bin:kernel/userspace/hello.elf
-bin/vfs_test       0755  0  0  f  bin:kernel/userspace/vfs_test.elf
-bin/ipc_test       0755  0  0  f  bin:kernel/userspace/ipc_test.elf
-bin/proc_test      0755  0  0  f  bin:kernel/userspace/proc_test.elf
-bin/driver_test    0755  0  0  f  bin:kernel/userspace/driver_test.elf
-bin/net_test       0755  0  0  f  bin:kernel/userspace/net_test.elf
+Binaries/init           0755  0  0  f  bin:kernel/userspace/init.elf
+Binaries/sh             0755  0  0  f  bin:kernel/userspace/sh.elf
+Binaries/syslogd        0755  0  0  f  bin:kernel/userspace/syslogd.elf
+Binaries/ls             0755  0  0  f  bin:kernel/userspace/ls.elf
+Binaries/cat             0755  0  0  f  bin:kernel/userspace/cat.elf
+Binaries/echo           0755  0  0  f  bin:kernel/userspace/echo.elf
+Binaries/mkdir          0755  0  0  f  bin:kernel/userspace/mkdir.elf
+Binaries/cp             0755  0  0  f  bin:kernel/userspace/cp.elf
+Binaries/mv             0755  0  0  f  bin:kernel/userspace/mv.elf
+Binaries/rm             0755  0  0  f  bin:kernel/userspace/rm.elf
+Binaries/touch          0755  0  0  f  bin:kernel/userspace/touch.elf
+Binaries/whoami         0755  0  0  f  bin:kernel/userspace/whoami.elf
+Binaries/login          0755  0  0  f  bin:kernel/userspace/login.elf
+Binaries/su             0755  0  0  f  bin:kernel/userspace/su.elf
+Binaries/chmod          0755  0  0  f  bin:kernel/userspace/chmod.elf
+Binaries/chown          0755  0  0  f  bin:kernel/userspace/chown.elf
+Binaries/hello          0755  0  0  f  bin:kernel/userspace/hello.elf
+Binaries/vfs_test       0755  0  0  f  bin:kernel/userspace/vfs_test.elf
+Binaries/ipc_test       0755  0  0  f  bin:kernel/userspace/ipc_test.elf
+Binaries/proc_test      0755  0  0  f  bin:kernel/userspace/proc_test.elf
+Binaries/driver_test    0755  0  0  f  bin:kernel/userspace/driver_test.elf
+Binaries/net_test       0755  0  0  f  bin:kernel/userspace/net_test.elf

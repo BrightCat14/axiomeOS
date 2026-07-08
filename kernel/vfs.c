@@ -81,12 +81,56 @@ static struct vfs_super *mount_find(const char *abs)
     return best;
 }
 
+/* ---- path aliases -------------------------------------------------------
+ * The VFS keeps a single set of objects. Friendly lower-case names are aliases
+ * that rewrite to canonical PascalCase directories before any resolution:
+ *     /bin -> /Binaries   /home -> /Users
+ *     /dev -> /Devices    /tmp  -> /Temporary
+ * Resolving in exactly one place (absolutize / make_abs) means every syscall
+ * and the mount table see only canonical paths; ported software is unaware. */
+struct vfs_alias { const char *alias; const char *canon; };
+static const struct vfs_alias g_vfs_aliases[] = {
+    { "/bin",      "/Binaries" },
+    { "/home",     "/Users" },
+    { "/dev",      "/Devices" },
+    { "/tmp",      "/Temporary" },
+    { "/etc",      "/System/Configuration" },
+    { "/var",      "/System/Variable" },
+    { "/proc",     "/System/Process" },
+    { 0, 0 }
+};
+
+void vfs_apply_aliases(char *abs)
+{
+    size_t al = vstrlen(abs);
+    for (int i = 0; g_vfs_aliases[i].alias; i++)
+    {
+        size_t a = vstrlen(g_vfs_aliases[i].alias);
+        if (!vstrncmp_prefix(abs, g_vfs_aliases[i].alias, a))
+            continue;
+        char after = abs[a];
+        if (after != 0 && after != '/')
+            continue;   /* not a whole component (e.g. /binary vs /bin) */
+        size_t c = vstrlen(g_vfs_aliases[i].canon);
+        long delta = (long)c - (long)a;
+        if ((long)al + delta >= 319)
+            break;      /* no room in the working buffer; leave as-is */
+        size_t rest = al - a;   /* chars from index a..al inclusive */
+        for (long k = (long)rest; k >= 0; k--)
+            abs[a + delta + k] = abs[a + k];
+        for (size_t k = 0; k < c; k++)
+            abs[k] = g_vfs_aliases[i].canon[k];
+        break;
+    }
+}
+
 /* Resolve `path` (relative to `cwd`) to an absolute path in `out`. */
 static void absolutize(const char *path, const char *cwd, char *out)
 {
     if (path[0] == '/')
     {
         vstrncpy(out, path, MAX_NAME);
+        vfs_apply_aliases(out);
         return;
     }
     size_t cl = vstrlen(cwd);
@@ -95,6 +139,7 @@ static void absolutize(const char *path, const char *cwd, char *out)
     if (i > 0 && out[i - 1] != '/' && i < MAX_NAME) out[i++] = '/';
     for (size_t k = 0; path[k] && i < MAX_NAME; k++) out[i++] = path[k];
     out[i] = 0;
+    vfs_apply_aliases(out);
 }
 
 /* ================================================================ *
@@ -372,11 +417,13 @@ static struct vfs_fops g_ramfs_ops = {
 
 int vfs_path_is_under_tmp(const char *abs)
 {
-    /* abs must start with "/tmp" and either be exactly "/tmp" or have a
-       '/' after "/tmp" (i.e. "/tmp/..."). */
-    if (abs[0] != '/' || abs[1] != 't' || abs[2] != 'm' || abs[3] != 'p')
-        return 0;
-    return abs[4] == '\0' || abs[4] == '/';
+    /* Canonical form is /Temporary (the /tmp alias is rewritten before this
+       gate runs); accept both during any transition. */
+    if (vstrncmp_prefix(abs, "/tmp", 4))
+        return abs[4] == '\0' || abs[4] == '/';
+    if (vstrncmp_prefix(abs, "/Temporary", 10))
+        return abs[10] == '\0' || abs[10] == '/';
+    return 0;
 }
 
 /* Write the parent directory of `abs` into `out` (e.g. "/a/b" -> "/a").
@@ -451,7 +498,7 @@ int vfs_check_perms(struct vnode *n, int mask)
 
 struct vnode *vfs_lookup(const char *path, const char *cwd)
 {
-    char abs[MAX_NAME + 1];
+    char abs[320];
     absolutize(path, cwd, abs);
     struct vfs_super *sb = mount_find(abs);
     if (!sb) return 0;
@@ -534,11 +581,11 @@ int vfs_list(const char *path, const char *cwd, struct vfs_dirent *ents, int max
 
 int vfs_create(const char *path, int type, const char *cwd)
 {
-    char abs[MAX_NAME + 1];
+    char abs[320];
     absolutize(path, cwd, abs);
 
     /* Permission gate: need write capability + write perm on parent dir. */
-    char parent[MAX_NAME + 1];
+    char parent[320];
     vfs_parent_path(abs, parent);
     struct vnode *pd = vfs_lookup(parent, "/");
     int gate = vfs_gate_write_file(abs, pd);
@@ -555,10 +602,10 @@ int vfs_create(const char *path, int type, const char *cwd)
 
 int vfs_remove(const char *path, const char *cwd)
 {
-    char abs[MAX_NAME + 1];
+    char abs[320];
     absolutize(path, cwd, abs);
 
-    char parent[MAX_NAME + 1];
+    char parent[320];
     vfs_parent_path(abs, parent);
     struct vnode *pd = vfs_lookup(parent, "/");
     int gate = vfs_gate_write_file(abs, pd);
