@@ -20,7 +20,7 @@ iso: kernel
 	mkdir -p $(BUILD_DIR)/isowork/boot/grub
 	cp $(BUILD_DIR)/kernel/kernel.elf $(BUILD_DIR)/isowork/boot/
 	cp grub.cfg $(BUILD_DIR)/isowork/boot/grub/
-	PATH="/tmp/opencode/mtools-install/bin:$$PATH" grub-mkrescue -o $(BUILD_DIR)/axiome.iso $(BUILD_DIR)/isowork 2>/dev/null
+	grub-mkrescue -o $(BUILD_DIR)/axiome.iso $(BUILD_DIR)/isowork 2>/dev/null
 
 # Build a 256MB MBR disk with:
 #   * partition 0: FAT32 "BOOT" (LBA 2048, 130024 sectors) holding kernel.elf
