@@ -68,7 +68,7 @@ static const struct user_entry g_fallback_users[] = {
     { "root",  0,    0,    ROLE_SYSTEM, "x", "/root",      "/bin/sh" },
     { "system",3,    3,    ROLE_SYSTEM, "x", "/sbin",      "/sbin/nologin" },
     { "alice", 1000, 1000, ROLE_USER,   "x", "/home/alice","/bin/sh" },
-    { "guest", 65534,65534, ROLE_GUEST, "x", "/tmp",       "/sbin/nologin" },
+    { "guest", 65534,65534, ROLE_GUEST, "x", "/Temporary", "/sbin/nologin" },
 };
 
 /* ---------------------------------------------------------------- *

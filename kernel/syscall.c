@@ -329,6 +329,7 @@ static void make_abs(const char *path, const char *cwd, char *out, size_t outsz)
     while (out[len]) len++;
     if (len > 1 && out[len - 1] == '/')
         out[len - 1] = 0;
+    vfs_apply_aliases(out);
 }
 
 static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
@@ -765,7 +766,7 @@ static int try_exec_path(const char *path, int argc, char **argv)
 }
 
 /* Directories searched (in order) when a command name has no '/'. */
-static const char *kpath_dirs[] = { "/", "/bin", 0 };
+static const char *kpath_dirs[] = { "/", "/bin", "/Binaries", 0 };
 
 static uint64_t sys_spawn_cmd(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
 {

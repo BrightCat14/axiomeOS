@@ -5,7 +5,7 @@
 #include "string.h"
 #include <stddef.h>
 
-/* Synthetic filesystem mounted at "/dev". The device registry (driver.c)
+/* Synthetic filesystem mounted at "/Devices". The device registry (driver.c)
    is the source of truth; each registered device becomes a node. */
 
 enum { DEV_ROOT = 0 };
@@ -154,7 +154,7 @@ void devfs_init(void)
 {
     struct vnode *root = dev_new(DEV_ROOT, 0, "/");
     if (!root) return;
-    struct vfs_super *sb = vfs_mount("/dev", FS_DEV, &g_dev_ops, 0);
+    struct vfs_super *sb = vfs_mount("/Devices", FS_DEV, &g_dev_ops, 0);
     if (!sb)
     {
         dev_inode_free(root);
@@ -162,5 +162,5 @@ void devfs_init(void)
     }
     root->sb = sb;
     sb->root = root;
-    printk("VFS: /dev device filesystem mounted\n");
+    printk("VFS: /Devices device filesystem mounted\n");
 }
