@@ -82,6 +82,8 @@ extern uint8_t _binary_userspace_driver_test_elf_start[];
 extern uint8_t _binary_userspace_driver_test_elf_end[];
 extern uint8_t _binary_userspace_net_test_elf_start[];
 extern uint8_t _binary_userspace_net_test_elf_end[];
+extern uint8_t _binary_userspace_kill_elf_start[];
+extern uint8_t _binary_userspace_kill_elf_end[];
 
 extern void syscall_entry(void);
 
@@ -746,6 +748,7 @@ static const struct spawn_prog spawn_progs[] = {
     {"proc_test", _binary_userspace_proc_test_elf_start, _binary_userspace_proc_test_elf_end},
     {"driver_test", _binary_userspace_driver_test_elf_start, _binary_userspace_driver_test_elf_end},
     {"net_test", _binary_userspace_net_test_elf_start, _binary_userspace_net_test_elf_end},
+    {"kill", _binary_userspace_kill_elf_start, _binary_userspace_kill_elf_end},
 };
 
 /* Search PATH for `name` and exec the first match found on the filesystem.
@@ -950,6 +953,8 @@ static void kill_fn(struct thread *t, void *arg)
     struct kill_arg *ka = (struct kill_arg *)arg;
     if (t->pid == ka->self)
         return;
+    if (sched_is_protected(t))
+        return;
     t->sig_pending |= (1ULL << ka->sig);
 }
 
@@ -968,6 +973,11 @@ static uint64_t sys_kill(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
             struct thread *t = sched_find_by_pid(pid);
             if (!t)
                 return (uint64_t)(-ESRCH);
+            /* main/idle are kernel threads: a USER caller is refused, any
+               other caller attempting it triggers a kernel panic. */
+            int pr = sched_protected_kill(t, self);
+            if (pr != 0)
+                return (uint64_t)pr;
             /* May signal own processes; others need KILL_ANY / SIGNAL_OTHER
                (or be the SYSTEM role, which is exempt). */
             if (t->uid != self->euid &&

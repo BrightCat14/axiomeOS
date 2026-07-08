@@ -16,6 +16,11 @@ static struct thread *ready_head;
 static struct thread *zombie_head;
 static int next_pid = 1;
 
+/* The userspace init process. If it ever exits (killed or naturally), the
+   scheduler respawns it on the next yield. */
+static struct thread *g_init_thread;
+static int g_init_dead;
+
 static void thread_init_vfs(struct thread *t)
 {
     for (int i = 0; i < MAX_FD; i++)
@@ -63,6 +68,8 @@ static void thread_set_system(struct thread *t)
 static struct thread *thread_find_by_pid(int pid);
 
 static struct thread *idle_ptr;
+
+static void sched_check_init(void);
 
 int sched_new_pid(void)
 {
@@ -316,6 +323,7 @@ static void reap_zombies(void)
 void sched_yield(void)
 {
     reap_zombies();
+    sched_check_init();
 
     if (!ready_head)
         return;
@@ -345,6 +353,12 @@ void sched_exit(int status)
     self->state = THREAD_ZOMBIE;
     self->exit_status = status;
     klog("Sched: '%s' (pid=%d) exiting status=%d\n", self->name, self->pid, status);
+
+    if (self == g_init_thread)
+    {
+        g_init_dead = 1;
+        klog("Sched: init (pid=%d) exited -- will respawn\n", self->pid);
+    }
 
     if (ready_head == self)
     {
@@ -412,6 +426,45 @@ static struct thread *thread_find_by_pid(int pid)
 struct thread *sched_find_by_pid(int pid)
 {
     return thread_find_by_pid(pid);
+}
+
+void sched_mark_init(struct thread *t)
+{
+    g_init_thread = t;
+}
+
+int sched_is_protected(struct thread *t)
+{
+    return (t == &main_thread || t == &idle_thread);
+}
+
+/* Guard the kernel's own threads (main/idle) against being killed.
+   Returns 0 if the kill may proceed, or a negative errno to block it.
+   A privileged caller (non-USER) attempting to kill main/idle is a fatal
+   mistake, so the kernel panics rather than silently allowing it. */
+int sched_protected_kill(struct thread *victim, struct thread *killer)
+{
+    if (!sched_is_protected(victim))
+        return 0;
+    if (killer && killer->role == ROLE_USER)
+        return -EPERM;
+    kernel_panic(victim == &main_thread ? "Attempted to kill main!"
+                                        : "Attempted to kill idle!");
+    return 0; /* unreachable */
+}
+
+/* If the userspace init process died, reap its zombie and respawn it. */
+static void sched_check_init(void)
+{
+    if (!g_init_dead)
+        return;
+    g_init_dead = 0;
+    if (g_init_thread)
+    {
+        sched_reap_zombie(g_init_thread);
+        g_init_thread = 0;
+    }
+    kernel_respawn_init();
 }
 
 void sched_foreach(void (*fn)(struct thread *, void *), void *arg)
