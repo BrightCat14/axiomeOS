@@ -43,6 +43,15 @@ static void exec_embedded_init(void)
     exec_user_program(start, size, "init");
 }
 
+/* Respawn the userspace init process after it has exited. */
+void kernel_respawn_init(void)
+{
+    uint8_t *start = _binary_userspace_init_elf_start;
+    size_t size = (size_t)(_binary_userspace_init_elf_end - start);
+    printk("Init: respawning userspace init\n");
+    exec_user_program(start, size, "init");
+}
+
 void kmain(unsigned long magic, unsigned long mb2_info_addr)
 {
     serial_init(COM1);

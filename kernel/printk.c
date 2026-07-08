@@ -221,3 +221,12 @@ void klog_flush(void)
     flush_locked();
     spin_unlock_irq(&klog_lock, flags);
 }
+
+void kernel_panic(const char *msg)
+{
+    __asm__ volatile("cli");
+    printk("\n*** KERNEL PANIC ***\n%s\n", msg ? msg : "(no message)");
+    klog("\n*** KERNEL PANIC ***\n%s\n", msg ? msg : "(no message)");
+    for (;;)
+        __asm__ volatile("hlt");
+}

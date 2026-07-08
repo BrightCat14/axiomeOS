@@ -201,8 +201,10 @@ int exec_user_program(const uint8_t *elf, size_t size, const char *name)
     }
     printk("EXEC: loaded '%s' entry=0x%lx stack=0x%lx\n",
             name, entry, stack_top);
-    sched_spawn_user_in(pml4, (void *)entry, (void *)stack_top, 0x202, name,
-                           0, 0, 0, 0, 0, 0);
+    struct thread *t = sched_spawn_user_in(pml4, (void *)entry, (void *)stack_top,
+                                           0x202, name, 0, 0, 0, 0, 0, 0);
+    if (t)
+        sched_mark_init(t);
     return 0;
 }
 

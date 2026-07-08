@@ -59,6 +59,10 @@ struct thread {
 };
 
 void sched_init(void);
+void sched_mark_init(struct thread *t);
+void kernel_respawn_init(void);
+int sched_protected_kill(struct thread *victim, struct thread *killer);
+int sched_is_protected(struct thread *t);
 struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name);
 struct thread *sched_spawn_user_in(uint64_t *pml4, void *rip, void *user_rsp,
                          uint64_t rflags, const char *name,

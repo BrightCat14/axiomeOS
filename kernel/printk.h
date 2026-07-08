@@ -3,6 +3,9 @@
 
 void printk(const char *fmt, ...);
 
+/* Unrecoverable fatal error: print the message and halt the CPU. */
+void kernel_panic(const char *msg);
+
 /* Like printk, but suppressed on the framebuffer (serial + kernel log only).
    Use for noisy chatter (e.g. scheduler bookkeeping) that must not disturb the
    visible console. */
