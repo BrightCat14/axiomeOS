@@ -7,7 +7,7 @@
 
 /* In-memory ring buffer of every byte emitted by the kernel (both printk and
    klog). Serves as the early-boot buffer (before VFS is up) and is replayed to
-   /etc/kernel.log once the root filesystem is mounted. */
+   /var/log/kernel.log once the root filesystem is mounted. */
 #define KLOG_RING 65536
 static char klog_ring[KLOG_RING];
 static size_t klog_prod;
@@ -197,11 +197,11 @@ static void print_hex(unsigned long val, int upper, void (*putch)(char))
 
 void klog_init_late(void)
 {
-    /* /etc/kernel.log is pre-created via the root manifest, so at runtime we
-       only need to look it up. Done WITHOUT holding klog_lock because the VFS
-       path may itself call printk, and printk re-enters the ring buffer which
-       takes that same lock (self-deadlock). */
-    struct vnode *n = vfs_lookup("/etc/kernel.log", "/");
+    /* /var/log/kernel.log is pre-created via the root manifest, so at runtime
+       we only need to look it up. Done WITHOUT holding klog_lock because the
+       VFS path may itself call printk, and printk re-enters the ring buffer
+       which takes that same lock (self-deadlock). */
+    struct vnode *n = vfs_lookup("/var/log/kernel.log", "/");
 
     unsigned long flags = spin_lock_irq(&klog_lock);
     if (!klog_file && n)

@@ -192,7 +192,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     /* Hand control to the shell with a clean framebuffer: the boot logs that
        scrolled above are not kernel noise the user needs to see. Scheduler
-       bookkeeping is routed to klog() (serial + /etc/kernel.log only), so the
+       bookkeeping is routed to klog() (serial + /var/log/kernel.log only), so the
        running shell stays free of visual noise. */
     if (fb_active())
         fb_clear();
