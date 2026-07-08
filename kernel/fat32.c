@@ -20,6 +20,10 @@ struct fat32_state {
     uint32_t fat_lba;         /* first FAT sector (relative to partition) */
     uint32_t data_start;      /* first data sector (relative to partition) */
     struct vnode *root;       /* cached root inode */
+    /* Mount-time ownership/mode defaults (POSIX compatibility shim). */
+    uint32_t mount_uid;
+    uint32_t mount_gid;
+    uint32_t mount_umask;
 };
 
 /* ---- tiny helpers ---- */
@@ -212,6 +216,13 @@ static struct vnode *fat_make_vnode(struct vfs_super *sb, const struct fat_diren
     n->type = fe->is_dir ? VFS_DIR : VFS_FILE;
     n->size = fe->size;
     n->priv = (void *)(uintptr_t)fe->first_cluster;
+    /* FAT32 has no native POSIX ownership; inherit the mount defaults and
+       derive the mode from the umask (dirs get execute, files do not). */
+    struct fat32_state *st = sb->priv;
+    n->v_uid = st ? st->mount_uid : 0;
+    n->v_gid = st ? st->mount_gid : 0;
+    uint32_t umask = st ? st->mount_umask : 022;
+    n->v_mode = (fe->is_dir ? (0777 & ~umask) : (0666 & ~umask));
     return n;
 }
 
@@ -374,6 +385,10 @@ static int fat32_try_mount(struct block_dev *bd, uint32_t part_start, const char
     memset(st, 0, sizeof(*st));
     st->bd = bd;
     st->part_start = part_start;
+    /* Default POSIX ownership/mode: uid 0, gid 0, umask 022 -> dirs 0755, files 0644. */
+    st->mount_uid = 0;
+    st->mount_gid = 0;
+    st->mount_umask = 022;
     if (fat32_parse_bpb(st, bpb) != 0)
     {
         kfree(st);

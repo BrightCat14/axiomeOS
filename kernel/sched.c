@@ -40,6 +40,24 @@ static void thread_init_vfs(struct thread *t)
 
     for (int i = 0; i < IPC_MAX; i++)
         t->ipc[i] = -1;
+
+    /* Default security context. Real user threads inherit their parent's
+       context in sched_spawn_user_in(); this is only the fallback when no
+       parent context exists yet. */
+    t->uid = t->euid = t->suid = 0;
+    t->gid = t->egid = t->sgid = 0;
+    t->role = ROLE_USER;
+    t->caps_eff = t->caps_prm = t->caps_inh = role_caps[ROLE_USER];
+}
+
+/* Initialize a thread to the privileged SYSTEM role (kernel daemons / init).
+   Capabilities are unbounded and the VFS permission checks are bypassed. */
+static void thread_set_system(struct thread *t)
+{
+    t->uid = t->euid = t->suid = 0;
+    t->gid = t->egid = t->sgid = 0;
+    t->role = ROLE_SYSTEM;
+    t->caps_eff = t->caps_prm = t->caps_inh = 0xFFFFFFFFULL;
 }
 
 static struct thread *thread_find_by_pid(int pid);
@@ -85,6 +103,7 @@ void sched_init(void)
     current->parent_pid = 0;
     current->exit_status = 0;
     __builtin_strcpy(current->name, "main");
+    thread_set_system(current);
 
     ready_head = current;
 
@@ -101,6 +120,7 @@ void sched_init(void)
     idle_thread.pid = sched_new_pid();
     idle_thread.parent_pid = 0;
     idle_thread.exit_status = 0;
+    thread_set_system(&idle_thread);
 
     idle_ptr = &idle_thread;
 
@@ -225,6 +245,22 @@ struct thread *sched_spawn_user_in(uint64_t *pml4, void *rip, void *user_rsp,
         t->name[i] = name[i];
     t->name[i] = 0;
     thread_init_vfs(t);
+
+    /* Inherit the full security context from the spawning (parent) thread.
+       fork: child == parent context. spawn: child inherits unless a SYSTEM
+       role overrides at exec time (not needed here). */
+    {
+        struct thread *parent = current;
+        if (parent)
+        {
+            t->uid = parent->uid;   t->euid = parent->euid; t->suid = parent->suid;
+            t->gid = parent->gid;   t->egid = parent->egid; t->sgid = parent->sgid;
+            t->role     = parent->role;
+            t->caps_eff = parent->caps_eff;
+            t->caps_prm = parent->caps_prm;
+            t->caps_inh = parent->caps_inh;
+        }
+    }
 
     if (ready_head)
     {
@@ -505,6 +541,7 @@ int sched_enum_procs(struct proc_info *buf, int max)
             buf[n].pid = (t)->pid; \
             buf[n].parent_pid = (t)->parent_pid; \
             buf[n].state = (t)->state; \
+            buf[n].uid = (int)(t)->uid; \
             int _i; \
             for (_i = 0; _i < 15 && (t)->name[_i]; _i++) \
                 buf[n].name[_i] = (t)->name[_i]; \

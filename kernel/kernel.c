@@ -20,6 +20,8 @@
 #include "elf.h"
 #include "ide.h"
 #include "fat32.h"
+#include "axiomefs.h"
+#include "security.h"
 #include "netdev.h"
 #include "socket.h"
 #include "loopback.h"
@@ -154,6 +156,12 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     devfs_init();
 
     fat32_automount();
+
+    /* Mount the axiomefs persistent root from partition 1 of the boot disk
+       (second MBR partition, 0-indexed) and parse /etc/passwd into the
+       in-kernel user database. */
+    axiomefs_mount_part(0, 0, 1, "/");
+    security_init();
 
     uint64_t sys_ret = syscall_dispatch(SYS_PRINT, (uint64_t)"hello from syscall dispatch", 0, 0, 0, 0);
     printk("Syscall dispatch returned: %lu\n", sys_ret);

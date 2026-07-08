@@ -62,6 +62,26 @@ USER_TOUCH_ELF := userspace/touch.elf
 USER_TOUCH_ELF_OBJ := $(BUILD_DIR)/touch_elf.o
 C_OBJS += $(USER_TOUCH_ELF_OBJ)
 
+USER_WHOAMI_ELF := userspace/whoami.elf
+USER_WHOAMI_ELF_OBJ := $(BUILD_DIR)/whoami_elf.o
+C_OBJS += $(USER_WHOAMI_ELF_OBJ)
+
+USER_LOGIN_ELF := userspace/login.elf
+USER_LOGIN_ELF_OBJ := $(BUILD_DIR)/login_elf.o
+C_OBJS += $(USER_LOGIN_ELF_OBJ)
+
+USER_SU_ELF := userspace/su.elf
+USER_SU_ELF_OBJ := $(BUILD_DIR)/su_elf.o
+C_OBJS += $(USER_SU_ELF_OBJ)
+
+USER_CHMOD_ELF := userspace/chmod.elf
+USER_CHMOD_ELF_OBJ := $(BUILD_DIR)/chmod_elf.o
+C_OBJS += $(USER_CHMOD_ELF_OBJ)
+
+USER_CHOWN_ELF := userspace/chown.elf
+USER_CHOWN_ELF_OBJ := $(BUILD_DIR)/chown_elf.o
+C_OBJS += $(USER_CHOWN_ELF_OBJ)
+
 USER_VFS_TEST_ELF := userspace/vfs_test.elf
 USER_VFS_TEST_ELF_OBJ := $(BUILD_DIR)/vfs_test_elf.o
 C_OBJS += $(USER_VFS_TEST_ELF_OBJ)
@@ -181,6 +201,31 @@ $(USER_TOUCH_ELF): userspace/touch.c userspace/link.ld $(LIBC_OBJS)
 	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/touch_user.o
 	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/touch_user.o $(LIBC_OBJS)
 
+$(USER_WHOAMI_ELF): userspace/whoami.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/whoami_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/whoami_user.o $(LIBC_OBJS)
+
+$(USER_LOGIN_ELF): userspace/login.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/login_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/login_user.o $(LIBC_OBJS)
+
+$(USER_SU_ELF): userspace/su.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/su_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/su_user.o $(LIBC_OBJS)
+
+$(USER_CHMOD_ELF): userspace/chmod.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/chmod_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/chmod_user.o $(LIBC_OBJS)
+
+$(USER_CHOWN_ELF): userspace/chown.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/chown_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/chown_user.o $(LIBC_OBJS)
+
 $(USER_VFS_TEST_ELF): userspace/vfs_test.c userspace/link.ld $(LIBC_OBJS)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/vfs_test_user.o
@@ -222,6 +267,21 @@ $(USER_RM_ELF_OBJ): $(USER_RM_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 $(USER_TOUCH_ELF_OBJ): $(USER_TOUCH_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_WHOAMI_ELF_OBJ): $(USER_WHOAMI_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_LOGIN_ELF_OBJ): $(USER_LOGIN_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_SU_ELF_OBJ): $(USER_SU_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_CHMOD_ELF_OBJ): $(USER_CHMOD_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_CHOWN_ELF_OBJ): $(USER_CHOWN_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 $(USER_VFS_TEST_ELF_OBJ): $(USER_VFS_TEST_ELF)

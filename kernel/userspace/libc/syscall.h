@@ -49,6 +49,20 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_SOCKET_LISTEN 39
 #define SYS_SOCKET_ACCEPT 40
 
+/* user rank system (must match kernel/syscall.h) */
+#define SYS_GETUID   41
+#define SYS_GETEUID  42
+#define SYS_GETGID   43
+#define SYS_GETEGID  44
+#define SYS_SETUID   45
+#define SYS_SETGID   46
+#define SYS_GETROLE  47
+#define SYS_CHMOD    48
+#define SYS_CHOWN    49
+#define SYS_GETCAP   50
+#define SYS_SETCAP   51
+#define SYS_GETPWNAM 52   /* name -> uid/gid (see sys_getpwnam) */
+
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
 #define O_WRONLY  0x0001
@@ -150,6 +164,7 @@ struct proc_info {
     int pid;
     int parent_pid;
     int state;
+    int uid;
     char name[16];
 };
 
@@ -158,5 +173,43 @@ struct proc_info {
 #define PROC_RUNNING  1
 #define PROC_BLOCKED  2
 #define PROC_ZOMBIE   3
+
+/* ---- user rank system (must match kernel) ---- */
+typedef unsigned int uid_t;
+typedef unsigned int gid_t;
+
+enum user_role {
+    ROLE_GUEST  = 0,
+    ROLE_USER   = 1,
+    ROLE_ADMIN  = 2,
+    ROLE_SYSTEM = 3
+};
+
+#define S_ISUID  04000
+#define S_ISGID  02000
+#define S_IRUSR  00400
+#define S_IWUSR  00200
+#define S_IXUSR  00100
+#define S_IRGRP  00040
+#define S_IWGRP  00020
+#define S_IXGRP  00010
+#define S_IROTH  00004
+#define S_IWOTH  00002
+#define S_IXOTH  00001
+
+/* identity / capability syscalls (docs/user-rank-system-spec.md) */
+uid_t getuid(void);
+uid_t geteuid(void);
+gid_t getgid(void);
+gid_t getegid(void);
+int   getrole(void);
+unsigned long long getcap(void);
+int   setuid(uid_t uid);
+int   setgid(gid_t gid);
+int   sys_getpwnam(const char *name, uid_t *uid, gid_t *gid);
+int   chmod(const char *path, unsigned int mode);
+int   chown(const char *path, uid_t uid, gid_t gid);
+/* read /etc/passwd, verify credentials, return uid or -1 */
+int   sys_authenticate(const char *user, const char *pass);
 
 #endif

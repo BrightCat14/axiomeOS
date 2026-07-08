@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "vfs.h"
 #include "signal.h"
+#include "security.h"
 
 #define THREAD_QUANTUM 10
 #define THREAD_STACK_SIZE 32768
@@ -43,6 +44,18 @@ struct thread {
 
     /* Signal delivery: iret frame of the in-progress syscall (per-thread). */
     uint64_t *syscall_iret;
+
+    /* Per-process security context (user rank system). */
+    uid_t uid;          /* real uid */
+    uid_t euid;         /* effective uid */
+    uid_t suid;         /* saved uid (for setuid) */
+    gid_t gid;          /* real gid */
+    gid_t egid;         /* effective gid */
+    gid_t sgid;         /* saved gid */
+    user_role_t role;   /* ROLE_GUEST .. ROLE_SYSTEM */
+    uint64_t caps_eff;  /* effective capabilities */
+    uint64_t caps_prm;  /* permitted capabilities */
+    uint64_t caps_inh;  /* inheritable capabilities */
 };
 
 void sched_init(void);
@@ -69,6 +82,7 @@ struct proc_info {
     int pid;
     int parent_pid;
     int state;
+    int uid;
     char name[16];
 };
 int sched_enum_procs(struct proc_info *buf, int max);
