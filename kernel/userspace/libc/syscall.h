@@ -63,6 +63,10 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_SETCAP   51
 #define SYS_GETPWNAM 52   /* name -> uid/gid (see sys_getpwnam) */
 
+/* loadable kernel modules (.kxt) */
+#define SYS_MODULE_LOAD   53
+#define SYS_MODULE_UNLOAD 54
+
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
 #define O_WRONLY  0x0001
@@ -210,6 +214,10 @@ int   sys_getpwnam(const char *name, uid_t *uid, gid_t *gid);
 int   chmod(const char *path, unsigned int mode);
 int   chown(const char *path, uid_t uid, gid_t gid);
 /* read /etc/passwd, verify credentials, return uid or -1 */
-int   sys_authenticate(const char *user, const char *pass);
+int  sys_authenticate(const char *user, const char *pass);
+
+/* ---- loadable kernel modules (.kxt) ---- */
+long kxtload(const char *path);     /* load a module by filesystem path */
+long kxtunload(const char *name);   /* unload a module by name          */
 
 #endif

@@ -225,3 +225,13 @@ int  sys_authenticate(const char *user, const char *pass)
     (void)user; (void)pass;
     return -1;
 }
+
+/* ---- loadable kernel modules (.kxt) ---- */
+long kxtload(const char *path)
+{
+    return syscall(SYS_MODULE_LOAD, (long)path, 0, 0, 0, 0, 0);
+}
+long kxtunload(const char *name)
+{
+    return syscall(SYS_MODULE_UNLOAD, (long)name, 0, 0, 0, 0, 0);
+}

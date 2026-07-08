@@ -59,6 +59,10 @@
 #define SYS_SETCAP   51
 #define SYS_GETPWNAM 52   /* name -> uid/gid (see sys_getpwnam) */
 
+/* ---- loadable kernel modules (.kxt) ---- */
+#define SYS_MODULE_LOAD   53  /* a1 = path (userspace ptr)          */
+#define SYS_MODULE_UNLOAD 54  /* a1 = name (userspace ptr)          */
+
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000
 #define S_IFDIR 0x4000
