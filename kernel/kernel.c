@@ -163,6 +163,8 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     axiomefs_mount_part(0, 0, 1, "/");
     security_init();
 
+    klog_init_late();
+
     uint64_t sys_ret = syscall_dispatch(SYS_PRINT, (uint64_t)"hello from syscall dispatch", 0, 0, 0, 0);
     printk("Syscall dispatch returned: %lu\n", sys_ret);
 
@@ -176,6 +178,15 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     uint64_t yield_count = 0;
     printk("APIC: tick");
     __asm__ volatile("sti");
+
+    klog_flush();
+
+    /* Hand control to the shell with a clean framebuffer: the boot logs that
+       scrolled above are not kernel noise the user needs to see. Scheduler
+       bookkeeping is routed to klog() (serial + /etc/kernel.log only), so the
+       running shell stays free of visual noise. */
+    if (fb_active())
+        fb_clear();
 
     sched_yield();
 
@@ -191,7 +202,10 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
             tcp_tick((uint32_t)(yield_count * 10));  /* rough ms estimate */
         }
         if ((yield_count % 5) == 0)
+        {
+            klog_flush();
             sched_yield();
+        }
 
         __asm__ volatile("hlt");
     }
