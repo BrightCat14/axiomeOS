@@ -3,10 +3,8 @@
 
 #include <stddef.h>
 
-/* Generic 6-argument syscall. rax = number, rdi/rsi/rdx/r10/r8/r9 = args. */
 long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
-/* Kernel syscall numbers (must match kernel/syscall.h). */
 #define SYS_PRINT   0
 #define SYS_YIELD   1
 #define SYS_EXIT    2
@@ -48,8 +46,6 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_SOCKET_CLOSE  38
 #define SYS_SOCKET_LISTEN 39
 #define SYS_SOCKET_ACCEPT 40
-
-/* user rank system (must match kernel/syscall.h) */
 #define SYS_GETUID   41
 #define SYS_GETEUID  42
 #define SYS_GETGID   43
@@ -61,9 +57,8 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_CHOWN    49
 #define SYS_GETCAP   50
 #define SYS_SETCAP   51
-#define SYS_GETPWNAM 52   /* name -> uid/gid (see sys_getpwnam) */
+#define SYS_GETPWNAM 52
 
-/* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
 #define O_WRONLY  0x0001
 #define O_RDWR    0x0002
@@ -73,21 +68,19 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
 #define DT_FILE   0
 #define DT_DIR    1
+
+#define S_IFREG 0x8000
+#define S_IFDIR 0x4000
+
+#define FS_RAMFS 0
+#define FS_FAT32 1
+#define FS_AXIOMEFS 2
+
 struct vfs_dirent {
     unsigned char type;
     char name[256];
 };
 
-/* File-type bits for st_mode (subset of POSIX, must match kernel). */
-#define S_IFREG 0x8000
-#define S_IFDIR 0x4000
-
-/* Filesystem types (must match kernel enum fs_type). */
-#define FS_RAMFS 0
-#define FS_FAT32 1
-#define FS_AXIOMEFS 2
-
-/* Stat structure (layout must match kernel struct stat). */
 struct stat {
     unsigned long long st_size;
     unsigned int st_mode;
@@ -95,45 +88,40 @@ struct stat {
     unsigned int st_ino;
 };
 
-/* POSIX-ish fd wrappers (backed by the kernel VFS). */
-int   open(const char *path, int flags);
-int   close(int fd);
-long  write(int fd, const void *buf, size_t len);
-long  read(int fd, void *buf, size_t len);
-int   mkdir(const char *path);
-int   unlink(const char *path);
-int   readdir(const char *path, struct vfs_dirent *ents, int max);
-int   chdir(const char *path);
-int   getcwd(char *buf, size_t size);
-int   fstat(int fd, struct stat *st);
-int   stat(const char *path, struct stat *st);
-int   dup2(int oldfd, int newfd);
-int   pipe(int fds[2]);
-int   mount(int fstype, const char *mountpoint, int dev);
-int   umount(const char *mountpoint);
-int   mkfifo(const char *path);
-long  driver_rescan(void);
+int open(const char *path, int flags);
+int close(int fd);
+long write(int fd, const void *buf, size_t len);
+long read(int fd, void *buf, size_t len);
+int mkdir(const char *path);
+int unlink(const char *path);
+int readdir(const char *path, struct vfs_dirent *ents, int max);
+int chdir(const char *path);
+int getcwd(char *buf, size_t size);
+int fstat(int fd, struct stat *st);
+int stat(const char *path, struct stat *st);
+int dup2(int oldfd, int newfd);
+int pipe(int fds[2]);
+int mount(int fstype, const char *mountpoint, int dev);
+int umount(const char *mountpoint);
+int mkfifo(const char *path);
+long driver_rescan(void);
 
-/* Process helpers. */
 long sys_getpid(void);
 long sys_fork(void);
 long sys_spawn(int which);
 long sys_spawn_cmd(const char *cmdline, size_t len);
 long sys_waitpid(int pid, int *status);
-int  sys_ps(void *buf, int max);
+int sys_ps(void *buf, int max);
 void sys_exit(int code);
 long sys_yield(void);
 
-/* IPC channels (Phase 11). */
-int  ipc_create(void);
+int ipc_create(void);
 long ipc_send(int chan, const void *buf, size_t len);
 long ipc_recv(int chan, void *buf, size_t max);
 
-/* Shared memory (Phase 11). */
-long   shm_create(size_t bytes);
-void  *shm_attach(long id);
+long shm_create(size_t bytes);
+void *shm_attach(long id);
 
-/* ---- Network sockets (Phase 13) ---- */
 #define AF_INET  2
 #define SOCK_DGRAM  2
 #define SOCK_STREAM 1
@@ -150,16 +138,16 @@ struct sockaddr_in {
     char           sin_zero[8];
 };
 
-int   sock_create(int domain, int type, int proto);
-int   sock_bind(int fd, const struct sockaddr *addr, int addrlen);
-int   sock_connect(int fd, const struct sockaddr *addr, int addrlen);
-int   sock_listen(int fd);
-int   sock_accept(int fd);
-long  sock_send(int fd, const void *buf, size_t len);
-long  sock_recv(int fd, void *buf, size_t max);
-int   sock_close(int fd);
+int sock_create(int domain, int type, int proto);
+int sock_bind(int fd, const struct sockaddr *addr, int addrlen);
+int sock_connect(int fd, const struct sockaddr *addr, int addrlen);
+int sock_listen(int fd);
+int sock_accept(int fd);
+long sock_send(int fd, const void *buf, size_t len);
+long sock_recv(int fd, void *buf, size_t max);
+int sock_close(int fd);
 
-/* Process listing (layout must match kernel struct proc_info). */
+/* Must match kernel/sched.h struct proc_info exactly */
 struct proc_info {
     int pid;
     int parent_pid;
@@ -168,13 +156,11 @@ struct proc_info {
     char name[16];
 };
 
-/* Thread states (matches kernel enum). */
 #define PROC_READY    0
 #define PROC_RUNNING  1
 #define PROC_BLOCKED  2
 #define PROC_ZOMBIE   3
 
-/* ---- user rank system (must match kernel) ---- */
 typedef unsigned int uid_t;
 typedef unsigned int gid_t;
 
@@ -197,19 +183,17 @@ enum user_role {
 #define S_IWOTH  00002
 #define S_IXOTH  00001
 
-/* identity / capability syscalls (docs/user-rank-system-spec.md) */
 uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);
 gid_t getegid(void);
-int   getrole(void);
+int getrole(void);
 unsigned long long getcap(void);
-int   setuid(uid_t uid);
-int   setgid(gid_t gid);
-int   sys_getpwnam(const char *name, uid_t *uid, gid_t *gid);
-int   chmod(const char *path, unsigned int mode);
-int   chown(const char *path, uid_t uid, gid_t gid);
-/* read /etc/passwd, verify credentials, return uid or -1 */
-int   sys_authenticate(const char *user, const char *pass);
+int setuid(uid_t uid);
+int setgid(gid_t gid);
+int sys_getpwnam(const char *name, uid_t *uid, gid_t *gid);
+int chmod(const char *path, unsigned int mode);
+int chown(const char *path, uid_t uid, gid_t gid);
+int sys_authenticate(const char *user, const char *pass);
 
 #endif
