@@ -458,19 +458,53 @@ static void spawn_rescue(void)
 
 /* ----------------------------------------------------------------------- main */
 
+/* Load every .kxt under /System/Extensions (loadable kernel modules such as
+   the e1000 NIC driver). Best-effort: failures are logged but non-fatal. */
+static void load_modules(void)
+{
+    struct vfs_dirent ents[64];
+    int n = readdir("/System/Extensions", ents, 64);
+    if (n <= 0)
+    {
+        log_evt("init", "no modules to load");
+        return;
+    }
+    for (int i = 0; i < n; i++)
+    {
+        if (ents[i].type == DT_DIR)
+            continue;
+        const char *nm = ents[i].name;
+        size_t l = strlen(nm);
+        if (l < 4 || strcmp(nm + l - 4, ".kxt") != 0)
+            continue;
+        char path[256];
+        int k = 0;
+        const char *pre = "/System/Extensions/";
+        for (; *pre; pre++) path[k++] = *pre;
+        for (const char *p = nm; *p; p++) path[k++] = *p;
+        path[k] = 0;
+        if (kxtload(path) == 0)
+            log_evt("init", "loaded module");
+        else
+            log_evt("init", "module load failed");
+    }
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
 
     /* NOTE: the runtime O_CREAT (file creation) path in axiomefs is currently
-       broken, so the log file is created at image-build time (see
-       root_manifest.txt) and opened here for append only. */
+        broken, so the log file is created at image-build time (see
+        root_manifest.txt) and opened here for append only. */
     g_logfd = open(INIT_LOG, O_WRONLY | O_APPEND);
     if (g_logfd < 0)
         log_evt("init", "could not open log file; console only");
 
     log_evt("init", "axiome-init starting (pid 1)");
+
+    load_modules();
 
     int n = load_config(INIT_CONF);
     if (n == 0)

@@ -5,7 +5,6 @@
 #include "io.h"
 #include "ide.h"
 #include "serial.h"
-#include "e1000.h"
 #include <stddef.h>
 
 static struct driver *g_drivers;
@@ -26,6 +25,25 @@ void driver_register(struct driver *d)
 {
     d->next = g_drivers;
     g_drivers = d;
+}
+
+void driver_unregister(struct driver *d)
+{
+    if (d == g_drivers)
+    {
+        g_drivers = d->next;
+        d->next = 0;
+        return;
+    }
+    for (struct driver *p = g_drivers; p && p->next; p = p->next)
+    {
+        if (p->next == d)
+        {
+            p->next = d->next;
+            d->next = 0;
+            return;
+        }
+    }
 }
 
 void device_register(struct device *d)
@@ -205,8 +223,6 @@ static int nvme_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "nvme0n1"); }
 static int xhci_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "usb0"); }
-static int e1000_probe_stub(struct pci_device *pdev)
-{ return e1000_probe(pdev); }
 static int vga_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "fb0"); }
 
@@ -222,14 +238,14 @@ static struct driver xhci_drv = {
     .name = "xhci", .vendor = DRV_ANY, .device = DRV_ANY,
     .pci_class = 0x0C, .pci_subclass = 0x03, .probe = xhci_probe,
 };
-static struct driver e1000_drv = {
-    .name = "e1000", .vendor = 0x8086, .device = DRV_ANY,
-    .pci_class = 0x02, .pci_subclass = 0x00, .probe = e1000_probe_stub,
-};
 static struct driver vga_drv = {
     .name = "vga", .vendor = 0x1234, .device = 0x1111,
     .pci_class = DRV_ANY, .pci_subclass = DRV_ANY, .probe = vga_probe,
 };
+
+/* NOTE: the e1000 NIC driver is no longer compiled into the kernel. It ships
+   as a loadable module (kernel/modules/e1000.kxt) and is loaded at runtime
+   via the .kxt framework (insmod/kxtload). See module.h / module.c. */
 
 /* ---------------------------------------------------------------- *
  * Bootstrap
@@ -239,7 +255,6 @@ void driver_init(void)
     driver_register(&ata_drv);
     driver_register(&nvme_drv);
     driver_register(&xhci_drv);
-    driver_register(&e1000_drv);
     driver_register(&vga_drv);
 
     /* Static character devices (no PCI dependence). */
