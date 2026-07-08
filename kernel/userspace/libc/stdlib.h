@@ -5,7 +5,9 @@
 
 void *malloc(size_t n);
 void free(void *p);
-int   atoi(const char *s);
-void  abort(void);
+int atoi(const char *s);
+long atol(const char *s);
+void abort(void);
+void exit(int status);
 
 #endif

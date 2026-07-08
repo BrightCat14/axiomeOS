@@ -40,9 +40,13 @@ struct sigaction {
     uint64_t sa_mask;
 };
 
-/* Supplied by crt0; restores the saved context via the sigreturn syscall. */
-void __sigreturn_trampoline(void);
+struct sigframe {
+    uint64_t rax, rdi, rsi, rdx, r10, r8, r9, rbx, rbp, r12, r13, r14, r15;
+    uint64_t rip, cs, rflags, rsp, ss;
+    uint64_t oldmask;
+};
 
+void __sigreturn_trampoline(void);
 int sigaction(int signo, const struct sigaction *act, struct sigaction *oldact);
 int kill(int pid, int sig);
 void sigreturn(void);

@@ -132,7 +132,6 @@ int sys_getpwnam(const char *name, uid_t *uid, gid_t *gid)
     return (int)syscall(SYS_GETPWNAM, (long)name, (long)uid, (long)gid, 0, 0, 0);
 }
 
-/* ---- IPC (Phase 11) ---- */
 int ipc_create(void)
 {
     return (int)syscall(SYS_IPC_CREATE, 0, 0, 0, 0, 0, 0);
@@ -146,7 +145,6 @@ long ipc_recv(int chan, void *buf, size_t max)
     return syscall(SYS_IPC_RECV, (long)chan, (long)buf, (long)max, 0, 0, 0);
 }
 
-/* ---- shared memory (Phase 11) ---- */
 long shm_create(size_t bytes)
 {
     return syscall(SYS_SHM_CREATE, (long)bytes, 0, 0, 0, 0, 0);
@@ -156,7 +154,6 @@ void *shm_attach(long id)
     return (void *)syscall(SYS_SHM_ATTACH, id, 0, 0, 0, 0, 0);
 }
 
-/* ---- Network sockets (Phase 13) ---- */
 int sock_create(int domain, int type, int proto)
 {
     return (int)syscall(SYS_SOCKET_CREATE, (long)domain, (long)type,
@@ -200,7 +197,6 @@ int sock_close(int fd)
     return (int)syscall(SYS_SOCKET_CLOSE, (long)fd, 0, 0, 0, 0, 0);
 }
 
-/* ---- user rank system ---- */
 uid_t getuid(void)  { return (uid_t)syscall(SYS_GETUID, 0,0,0,0,0,0); }
 uid_t geteuid(void) { return (uid_t)syscall(SYS_GETEUID, 0,0,0,0,0,0); }
 gid_t getgid(void)  { return (gid_t)syscall(SYS_GETGID, 0,0,0,0,0,0); }
@@ -219,9 +215,6 @@ int  chown(const char *path, uid_t uid, gid_t gid)
 }
 int  sys_authenticate(const char *user, const char *pass)
 {
-    /* Userspace-side verification is not wired to a kernel syscall in this
-       minimal OS; see login.c which reads /etc/passwd directly. This helper
-       exists so tools compile and can call into a future AUTH syscall. */
     (void)user; (void)pass;
     return -1;
 }

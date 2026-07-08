@@ -3,18 +3,15 @@
 #include "errno.h"
 #include <stddef.h>
 
-/* Trampoline jumped to when a signal handler returns. It calls the
-   sigreturn syscall, which restores the saved register context. */
 void __sigreturn_trampoline(void)
 {
     register long n __asm__("rax") = SYS_SIGRETURN;
     __asm__ volatile ("syscall" : : "r"(n) : "%rcx", "%r11", "memory");
-    for (;;) { }   /* should never return */
+    for (;;) { }
 }
 
 int sigaction(int signo, const struct sigaction *act, struct sigaction *oldact)
 {
-    /* Force a restorer so the kernel can return from the handler. */
     struct sigaction local;
     const struct sigaction *p = act;
     if (act)

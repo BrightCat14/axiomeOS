@@ -64,10 +64,10 @@ static void emit_int(long v)
     }
 }
 
-int printf(const char *fmt, ...)
+int vprintf(const char *fmt, va_list ap)
 {
-    va_list ap;
-    va_start(ap, fmt);
+    va_list ap2;
+    va_copy(ap2, ap);
 
     for (; *fmt; fmt++)
     {
@@ -85,18 +85,6 @@ int printf(const char *fmt, ...)
             continue;
         }
 
-        /* skip flags, width, precision, length modifiers */
-        while (*fmt == '-' || *fmt == '+' || *fmt == ' ' ||
-               *fmt == '#' || *fmt == '0')
-            fmt++;
-        while (*fmt >= '0' && *fmt <= '9')
-            fmt++;
-        if (*fmt == '.')
-        {
-            fmt++;
-            while (*fmt >= '0' && *fmt <= '9')
-                fmt++;
-        }
         int longflag = 0;
         while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z')
         {
@@ -111,43 +99,43 @@ int printf(const char *fmt, ...)
         {
         case 'd':
         case 'i': {
-            long v = longflag ? va_arg(ap, long) : (long)va_arg(ap, int);
+            long v = longflag ? va_arg(ap2, long) : (long)va_arg(ap2, int);
             emit_int(v);
             break;
         }
         case 'u': {
-            unsigned long v = longflag ? va_arg(ap, unsigned long)
-                                       : (unsigned long)va_arg(ap, unsigned int);
+            unsigned long v = longflag ? va_arg(ap2, unsigned long)
+                                       : (unsigned long)va_arg(ap2, unsigned int);
             emit_uint(v, 10, 0);
             break;
         }
         case 'x': {
-            unsigned long v = longflag ? va_arg(ap, unsigned long)
-                                       : (unsigned long)va_arg(ap, unsigned int);
+            unsigned long v = longflag ? va_arg(ap2, unsigned long)
+                                       : (unsigned long)va_arg(ap2, unsigned int);
             emit_uint(v, 16, 0);
             break;
         }
         case 'X': {
-            unsigned long v = longflag ? va_arg(ap, unsigned long)
-                                       : (unsigned long)va_arg(ap, unsigned int);
+            unsigned long v = longflag ? va_arg(ap2, unsigned long)
+                                       : (unsigned long)va_arg(ap2, unsigned int);
             emit_uint(v, 16, 1);
             break;
         }
         case 'p': {
-            void *p = va_arg(ap, void *);
+            void *p = va_arg(ap2, void *);
             emit_str("0x");
             emit_uint((unsigned long)(unsigned long long)p, 16, 0);
             break;
         }
         case 's': {
-            const char *s = va_arg(ap, const char *);
+            const char *s = va_arg(ap2, const char *);
             if (!s)
                 s = "(null)";
             emit_str(s);
             break;
         }
         case 'c': {
-            int c = va_arg(ap, int);
+            int c = va_arg(ap2, int);
             emit((char)c);
             break;
         }
@@ -159,8 +147,17 @@ int printf(const char *fmt, ...)
     }
 
     flush();
-    va_end(ap);
+    va_end(ap2);
     return 0;
+}
+
+int printf(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int r = vprintf(fmt, ap);
+    va_end(ap);
+    return r;
 }
 
 int puts(const char *s)
