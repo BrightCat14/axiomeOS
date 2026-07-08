@@ -40,6 +40,14 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_SHM_ATTACH 30
 #define SYS_MKFIFO 31
 #define SYS_DRIVER_RESCAN 32
+#define SYS_SOCKET_CREATE 33
+#define SYS_SOCKET_BIND   34
+#define SYS_SOCKET_CONNECT 35
+#define SYS_SOCKET_SEND   36
+#define SYS_SOCKET_RECV   37
+#define SYS_SOCKET_CLOSE  38
+#define SYS_SOCKET_LISTEN 39
+#define SYS_SOCKET_ACCEPT 40
 
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
@@ -110,6 +118,32 @@ long ipc_recv(int chan, void *buf, size_t max);
 /* Shared memory (Phase 11). */
 long   shm_create(size_t bytes);
 void  *shm_attach(long id);
+
+/* ---- Network sockets (Phase 13) ---- */
+#define AF_INET  2
+#define SOCK_DGRAM  2
+#define SOCK_STREAM 1
+
+struct sockaddr {
+    unsigned short sa_family;
+    char           sa_data[14];
+};
+
+struct sockaddr_in {
+    unsigned short sin_family;
+    unsigned short sin_port;
+    unsigned int   sin_addr;
+    char           sin_zero[8];
+};
+
+int   sock_create(int domain, int type, int proto);
+int   sock_bind(int fd, const struct sockaddr *addr, int addrlen);
+int   sock_connect(int fd, const struct sockaddr *addr, int addrlen);
+int   sock_listen(int fd);
+int   sock_accept(int fd);
+long  sock_send(int fd, const void *buf, size_t len);
+long  sock_recv(int fd, void *buf, size_t max);
+int   sock_close(int fd);
 
 /* Process listing (layout must match kernel struct proc_info). */
 struct proc_info {

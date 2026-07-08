@@ -24,6 +24,9 @@ struct pci_device {
 /* Read a 32-bit configuration dword for (bus,dev,func) at offset `off`. */
 uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t func, uint8_t off);
 
+/* Write a 32-bit configuration dword. */
+void pci_write32(uint8_t bus, uint8_t dev, uint8_t func, uint8_t off, uint32_t val);
+
 /* Enumerate the PCI bus(es) and print discovered devices. */
 void pci_init(void);
 

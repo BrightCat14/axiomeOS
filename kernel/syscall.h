@@ -36,6 +36,14 @@
 #define SYS_SHM_ATTACH 30
 #define SYS_MKFIFO 31
 #define SYS_DRIVER_RESCAN 32
+#define SYS_SOCKET_CREATE 33
+#define SYS_SOCKET_BIND   34
+#define SYS_SOCKET_CONNECT 35
+#define SYS_SOCKET_SEND   36
+#define SYS_SOCKET_RECV   37
+#define SYS_SOCKET_CLOSE  38
+#define SYS_SOCKET_LISTEN 39
+#define SYS_SOCKET_ACCEPT 40
 
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000

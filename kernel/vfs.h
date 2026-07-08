@@ -96,7 +96,8 @@ struct vfs_super {
 #define O_APPEND  0x0400
 
 /* File-descriptor kinds. */
-enum fd_kind { FD_FREE = 0, FD_TTY_IN, FD_CONSOLE_OUT, FD_VNODE, FD_PIPE };
+enum fd_kind { FD_FREE = 0, FD_TTY_IN, FD_CONSOLE_OUT, FD_VNODE, FD_PIPE,
+               FD_SOCKET };
 
 #define MAX_FD 32
 

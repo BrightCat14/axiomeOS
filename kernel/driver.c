@@ -5,6 +5,7 @@
 #include "io.h"
 #include "ide.h"
 #include "serial.h"
+#include "e1000.h"
 #include <stddef.h>
 
 static struct driver *g_drivers;
@@ -58,8 +59,9 @@ int driver_probe_pci(struct pci_device *pdev)
     {
         int v_ok = (d->vendor == DRV_ANY) || (d->vendor == pdev->vendor);
         int d_ok = (d->device == DRV_ANY) || (d->device == pdev->device);
-        int c_ok = (d->pci_class == DRV_ANY) || (d->pci_class == pdev->class_code);
-        int s_ok = (d->pci_subclass == DRV_ANY) ||
+        int c_ok = (d->pci_class == (uint8_t)(DRV_ANY & 0xFF)) ||
+                   (d->pci_class == pdev->class_code);
+        int s_ok = (d->pci_subclass == (uint8_t)(DRV_ANY & 0xFF)) ||
                    (d->pci_subclass == pdev->subclass);
         if (v_ok && d_ok && c_ok && s_ok)
         {
@@ -203,8 +205,8 @@ static int nvme_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "nvme0n1"); }
 static int xhci_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "usb0"); }
-static int e1000_probe(struct pci_device *pdev)
-{ return stub_probe(pdev, "eth0"); }
+static int e1000_probe_stub(struct pci_device *pdev)
+{ return e1000_probe(pdev); }
 static int vga_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "fb0"); }
 
@@ -222,7 +224,7 @@ static struct driver xhci_drv = {
 };
 static struct driver e1000_drv = {
     .name = "e1000", .vendor = 0x8086, .device = DRV_ANY,
-    .pci_class = DRV_ANY, .pci_subclass = DRV_ANY, .probe = e1000_probe,
+    .pci_class = 0x02, .pci_subclass = 0x00, .probe = e1000_probe_stub,
 };
 static struct driver vga_drv = {
     .name = "vga", .vendor = 0x1234, .device = 0x1111,

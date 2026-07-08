@@ -20,6 +20,12 @@
 #include "elf.h"
 #include "ide.h"
 #include "fat32.h"
+#include "netdev.h"
+#include "socket.h"
+#include "loopback.h"
+#include "tcp.h"
+#include "arp.h"
+#include "e1000.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -138,6 +144,12 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     procfs_init();
 
     pci_init();
+
+    /* Network stack init: mbuf pool, loopback, protocol handlers.
+       Must come before driver_init() because e1000 probe needs mbufs. */
+    net_init();
+    socket_init();
+
     driver_init();
     devfs_init();
 
@@ -162,8 +174,14 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     while (1)
     {
         softirq_poll();
+        e1000_rx_poll();
 
         yield_count++;
+        if ((yield_count % 50) == 0)
+        {
+            arp_tick();
+            tcp_tick((uint32_t)(yield_count * 10));  /* rough ms estimate */
+        }
         if ((yield_count % 5) == 0)
             sched_yield();
 

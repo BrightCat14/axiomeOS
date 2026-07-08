@@ -15,6 +15,14 @@ uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t func, uint8_t off)
     return inl(PCI_DATA_PORT);
 }
 
+void pci_write32(uint8_t bus, uint8_t dev, uint8_t func, uint8_t off, uint32_t val)
+{
+    uint32_t addr = 0x80000000u | ((uint32_t)bus << 16) |
+                    ((uint32_t)dev << 11) | ((uint32_t)func << 8) | (off & 0xFC);
+    outl(PCI_ADDR_PORT, addr);
+    outl(PCI_DATA_PORT, val);
+}
+
 static void pci_add(uint8_t bus, uint8_t dev, uint8_t func)
 {
     uint32_t id = pci_read32(bus, dev, func, 0x00);
