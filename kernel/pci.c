@@ -118,5 +118,13 @@ uint64_t pci_bar_addr(const struct pci_device *p, int idx)
         return 0;
     if (raw & 1)
         return raw & 0xFFFC;          /* IO port */
-    return (uint64_t)(raw & 0xFFFFFFF0); /* MMIO */
+    /* MMIO.  Bits 1-2 encode the BAR type: 0b10 = 64-bit, spanning this
+       register and the next one (BAR idx+1 holds the upper 32 bits). */
+    int type = (raw >> 1) & 0x3;
+    if (type == 2)
+    {
+        uint32_t hi = (idx < 5) ? p->bar[idx + 1] : 0;
+        return (((uint64_t)hi) << 32) | (uint64_t)(raw & 0xFFFFFFF0);
+    }
+    return (uint64_t)(raw & 0xFFFFFFF0);
 }

@@ -30,6 +30,7 @@ KSYM(strlen);
 
 /* Physical / virtual memory. */
 KSYM(pmm_alloc_frame);
+KSYM(pmm_alloc_frames);
 KSYM(pmm_free_frame);
 KSYM(pmm_free_frames);
 KSYM(vmm_mmap_phys);
@@ -46,6 +47,8 @@ KSYM(pci_first);
 KSYM(driver_register);
 KSYM(driver_unregister);
 KSYM(driver_probe_pci);
+KSYM(device_register);
+KSYM(device_find);
 
 /* Network stack. */
 KSYM(netdev_register);
