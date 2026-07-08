@@ -9,6 +9,7 @@ ovmf_vars.fd
 
 # ELF binaries (userspace, built from sources)
 kernel/userspace/*.elf
+kernel/modules/*.kxt
 
 # Editor/OS files
 *.swp
@@ -16,7 +17,6 @@ kernel/userspace/*.elf
 .DS_Store
 
 DOCS/NESTED.TXT
-
 
 # Reference material
 osdev_wiki/
