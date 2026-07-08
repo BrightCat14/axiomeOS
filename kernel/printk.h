@@ -14,8 +14,8 @@ void klog(const char *fmt, ...);
 void console_putchar(char c);
 void console_write(const char *s);
 
-/* Open /etc/kernel.log under the mounted root and replay the in-memory log
-   buffer captured during early boot. Call once after the root FS is mounted. */
+/* Open /var/log/kernel.log under the mounted root and replay the in-memory
+   log buffer captured during early boot. Call once after the root FS is mounted. */
 void klog_init_late(void);
 
 /* Flush any ring-buffered log bytes that have not yet reached the file. */

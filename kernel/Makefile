@@ -106,6 +106,10 @@ USER_KILL_ELF := userspace/kill.elf
 USER_KILL_ELF_OBJ := $(BUILD_DIR)/kill_elf.o
 C_OBJS += $(USER_KILL_ELF_OBJ)
 
+USER_SYSLOGD_ELF := userspace/syslogd.elf
+USER_SYSLOGD_ELF_OBJ := $(BUILD_DIR)/syslogd_elf.o
+C_OBJS += $(USER_SYSLOGD_ELF_OBJ)
+
 USER_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
 	-fno-stack-protector -static -fno-pic -fno-pie -mcmodel=large -O2 \
 	-mno-red-zone -Wall -Wextra -I userspace/libc
@@ -308,6 +312,14 @@ $(USER_KILL_ELF): userspace/kill.c userspace/link.ld $(LIBC_OBJS)
 	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/kill_user.o $(LIBC_OBJS)
 
 $(USER_KILL_ELF_OBJ): $(USER_KILL_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_SYSLOGD_ELF): userspace/syslogd.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/syslogd_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/syslogd_user.o $(LIBC_OBJS)
+
+$(USER_SYSLOGD_ELF_OBJ): $(USER_SYSLOGD_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 clean:
