@@ -124,7 +124,7 @@ void sched_init(void)
 
     idle_ptr = &idle_thread;
 
-    printk("Sched: initialized\n");
+    klog("Sched: initialized\n");
 }
 
 struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name)
@@ -182,7 +182,7 @@ struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name)
         ready_head = t;
     }
 
-    printk("Sched: spawned '%s' rsp=0x%lx\n", t->name, t->rsp);
+    klog("Sched: spawned '%s' rsp=0x%lx\n", t->name, t->rsp);
     return t;
 }
 
@@ -276,7 +276,7 @@ struct thread *sched_spawn_user_in(uint64_t *pml4, void *rip, void *user_rsp,
         ready_head = t;
     }
 
-    printk("Sched: spawned user thread '%s' pid=%d rsp=0x%lx\n", t->name, t->pid, t->rsp);
+    klog("Sched: spawned user thread '%s' pid=%d rsp=0x%lx\n", t->name, t->pid, t->rsp);
     return t;
 }
 
@@ -344,7 +344,7 @@ void sched_exit(int status)
     struct thread *self = current;
     self->state = THREAD_ZOMBIE;
     self->exit_status = status;
-    printk("Sched: '%s' (pid=%d) exiting status=%d\n", self->name, self->pid, status);
+    klog("Sched: '%s' (pid=%d) exiting status=%d\n", self->name, self->pid, status);
 
     if (ready_head == self)
     {

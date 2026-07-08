@@ -6,6 +6,7 @@
 
 etc/           0755  0  0  d
 etc/passwd     0644  0  0  f  content:root:x:0:0:system:/root:/bin/sh\nalice:x:1000:1000:user:/home/alice:/bin/sh\nguest:x:65534:65534:guest:/tmp:/sbin/nologin\n
+etc/kernel.log 0644  0  0  f  content:
 
 home/          0755  0  0  d
 home/alice/    0755 1000 1000 d
