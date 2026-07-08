@@ -5,6 +5,18 @@
 
 #define KEYBOARD_IRQ 1
 
+/* Special key codes for arrow keys */
+#define KEY_UP    0x100
+#define KEY_DOWN  0x101
+#define KEY_LEFT  0x102
+#define KEY_RIGHT 0x103
+#define KEY_HOME  0x104
+#define KEY_END   0x105
+#define KEY_PGUP  0x106
+#define KEY_PGDN  0x107
+#define KEY_INSERT 0x108
+#define KEY_DELETE 0x109
+
 static const char scancode_ansi[128] = {
     [0x00] = 0, [0x01] = 27,
     [0x02] = '1', [0x03] = '2', [0x04] = '3', [0x05] = '4', [0x06] = '5',
@@ -36,6 +48,85 @@ static inline void outb(uint16_t port, uint8_t val)
     __asm__ volatile("outb %0, %1" : : "a"(val), "d"(port));
 }
 
+/* Escape sequence state machine */
+#define ESC_STATE_IDLE  0
+#define ESC_STATE_ESC   1
+#define ESC_STATE_BRACK 2
+#define ESC_STATE_CSI   3
+
+static int esc_state = ESC_STATE_IDLE;
+static int esc_buf[4];
+static int esc_idx = 0;
+
+static void handle_escape(int c)
+{
+    switch (esc_state) {
+    case ESC_STATE_IDLE:
+        if (c == 27) {
+            esc_state = ESC_STATE_ESC;
+            esc_idx = 0;
+        } else {
+            tty_input_char((char)c);
+        }
+        break;
+        
+    case ESC_STATE_ESC:
+        if (c == '[') {
+            esc_state = ESC_STATE_BRACK;
+            esc_idx = 0;
+        } else {
+            esc_state = ESC_STATE_IDLE;
+            tty_input_char(27);
+            if (c >= 32 && c < 127) tty_input_char((char)c);
+        }
+        break;
+        
+    case ESC_STATE_BRACK:
+        if (c >= '0' && c <= '9') {
+            esc_buf[esc_idx++] = c;
+            if (esc_idx >= 4) {
+                esc_state = ESC_STATE_IDLE;
+                tty_input_char(27);
+            }
+        } else if (c >= 'A' && c <= 'D') {
+            /* Arrow keys: [A, [B, [C, [D */
+            esc_state = ESC_STATE_IDLE;
+            if (c == 'A') tty_input_char(KEY_UP);
+            else if (c == 'B') tty_input_char(KEY_DOWN);
+            else if (c == 'C') tty_input_char(KEY_RIGHT);
+            else if (c == 'D') tty_input_char(KEY_LEFT);
+        } else if (c == 'H') {
+            esc_state = ESC_STATE_IDLE;
+            tty_input_char(KEY_HOME);
+        } else if (c == 'F') {
+            esc_state = ESC_STATE_IDLE;
+            tty_input_char(KEY_END);
+        } else if (c == '~') {
+            /* Handle [1~, [3~, [4~, etc */
+            esc_state = ESC_STATE_IDLE;
+            if (esc_idx == 1 && esc_buf[0] == '1') {
+                tty_input_char(KEY_HOME);
+            } else if (esc_idx == 1 && esc_buf[0] == '3') {
+                tty_input_char(KEY_DELETE);
+            } else if (esc_idx == 1 && esc_buf[0] == '4') {
+                tty_input_char(KEY_END);
+            } else if (esc_idx == 1 && esc_buf[0] == '5') {
+                tty_input_char(KEY_PGUP);
+            } else if (esc_idx == 1 && esc_buf[0] == '6') {
+                tty_input_char(KEY_PGDN);
+            }
+        } else {
+            esc_state = ESC_STATE_IDLE;
+            tty_input_char(27);
+            tty_input_char('[');
+            for (int i = 0; i < esc_idx; i++)
+                tty_input_char(esc_buf[i]);
+            if (c >= 32 && c < 127) tty_input_char((char)c);
+        }
+        break;
+    }
+}
+
 void keyboard_irq_handler(void)
 {
     uint8_t status = inb(0x64);
@@ -45,8 +136,17 @@ void keyboard_irq_handler(void)
         if (scancode < 0x80)
         {
             char c = scancode_ansi[scancode];
-            if (c)
-                tty_input_char(c);
+            if (c) {
+                /* Handle escape sequences in the keyboard driver */
+                if (c == 27) {
+                    esc_state = ESC_STATE_ESC;
+                    esc_idx = 0;
+                } else if (esc_state != ESC_STATE_IDLE) {
+                    handle_escape(c);
+                } else {
+                    tty_input_char(c);
+                }
+            }
         }
     }
 }
