@@ -3,8 +3,6 @@
 #include "syscall.h"
 #include <stddef.h>
 
-/* Simple bump allocator backed by a static BSS heap. free() is a no-op
-   (a real slab/heap would be added later). */
 #define HEAP_SIZE (4UL * 1024 * 1024)
 static unsigned char heap[HEAP_SIZE];
 static unsigned long heap_off = 0;
@@ -53,9 +51,39 @@ int atoi(const char *s)
     return neg ? -v : v;
 }
 
+long atol(const char *s)
+{
+    int neg = 0;
+    long v = 0;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')
+        s++;
+    if (*s == '-')
+    {
+        neg = 1;
+        s++;
+    }
+    else if (*s == '+')
+    {
+        s++;
+    }
+    while (*s >= '0' && *s <= '9')
+    {
+        v = v * 10 + (*s - '0');
+        s++;
+    }
+    return neg ? -v : v;
+}
+
 void abort(void)
 {
-    syscall(SYS_EXIT, 134, 0, 0, 0, 0, 0); /* 128 + SIGABRT */
+    syscall(SYS_EXIT, 134, 0, 0, 0, 0, 0);
+    for (;;)
+        __asm__ volatile ("hlt");
+}
+
+void exit(int status)
+{
+    syscall(SYS_EXIT, status, 0, 0, 0, 0, 0);
     for (;;)
         __asm__ volatile ("hlt");
 }

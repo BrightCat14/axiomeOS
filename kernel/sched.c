@@ -539,11 +539,12 @@ int sched_has_child(int parent_pid)
     struct thread *t = ready_head;
     if (t)
     {
+        struct thread *start = t;
         do {
             if (t->parent_pid == parent_pid)
                 return 1;
             t = t->next;
-        } while (t != ready_head);
+        } while (t != start);
     }
     if (zombie_head)
     {
@@ -590,7 +591,7 @@ int sched_enum_procs(struct proc_info *buf, int max)
         return 0;
 
     #define ADD(t) do { \
-        if (n < max) { \
+        if (n < max && (t)) { \
             buf[n].pid = (t)->pid; \
             buf[n].parent_pid = (t)->parent_pid; \
             buf[n].state = (t)->state; \
@@ -607,21 +608,25 @@ int sched_enum_procs(struct proc_info *buf, int max)
     ADD(&idle_thread);
     if (current && current != &main_thread && current != &idle_thread)
         ADD(current);
+    
     if (ready_head)
     {
+        struct thread *start = ready_head;
         struct thread *t = ready_head;
         do {
             if (t != &main_thread && t != &idle_thread && t != current)
                 ADD(t);
             t = t->next;
-        } while (t != ready_head);
+        } while (t != start);
     }
+    
     if (zombie_head)
     {
         struct thread *z = zombie_head;
         while (z)
         {
-            ADD(z);
+            if (z != &main_thread && z != &idle_thread && z != current)
+                ADD(z);
             z = z->next;
         }
     }
