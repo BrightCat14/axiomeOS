@@ -151,3 +151,47 @@ void *shm_attach(long id)
 {
     return (void *)syscall(SYS_SHM_ATTACH, id, 0, 0, 0, 0, 0);
 }
+
+/* ---- Network sockets (Phase 13) ---- */
+int sock_create(int domain, int type, int proto)
+{
+    return (int)syscall(SYS_SOCKET_CREATE, (long)domain, (long)type,
+                        (long)proto, 0, 0, 0);
+}
+
+int sock_bind(int fd, const struct sockaddr *addr, int addrlen)
+{
+    return (int)syscall(SYS_SOCKET_BIND, (long)fd, (long)addr,
+                        (long)addrlen, 0, 0, 0);
+}
+
+int sock_connect(int fd, const struct sockaddr *addr, int addrlen)
+{
+    return (int)syscall(SYS_SOCKET_CONNECT, (long)fd, (long)addr,
+                        (long)addrlen, 0, 0, 0);
+}
+
+int sock_listen(int fd)
+{
+    return (int)syscall(SYS_SOCKET_LISTEN, (long)fd, 0, 0, 0, 0, 0);
+}
+
+int sock_accept(int fd)
+{
+    return (int)syscall(SYS_SOCKET_ACCEPT, (long)fd, 0, 0, 0, 0, 0);
+}
+
+long sock_send(int fd, const void *buf, size_t len)
+{
+    return syscall(SYS_SOCKET_SEND, (long)fd, (long)buf, (long)len, 0, 0, 0);
+}
+
+long sock_recv(int fd, void *buf, size_t max)
+{
+    return syscall(SYS_SOCKET_RECV, (long)fd, (long)buf, (long)max, 0, 0, 0);
+}
+
+int sock_close(int fd)
+{
+    return (int)syscall(SYS_SOCKET_CLOSE, (long)fd, 0, 0, 0, 0, 0);
+}

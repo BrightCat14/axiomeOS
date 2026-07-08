@@ -78,6 +78,10 @@ USER_DRIVER_TEST_ELF := userspace/driver_test.elf
 USER_DRIVER_TEST_ELF_OBJ := $(BUILD_DIR)/driver_test_elf.o
 C_OBJS += $(USER_DRIVER_TEST_ELF_OBJ)
 
+USER_NET_TEST_ELF := userspace/net_test.elf
+USER_NET_TEST_ELF_OBJ := $(BUILD_DIR)/net_test_elf.o
+C_OBJS += $(USER_NET_TEST_ELF_OBJ)
+
 USER_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
 	-fno-stack-protector -static -fno-pic -fno-pie -mcmodel=large -O2 \
 	-mno-red-zone -Wall -Wextra -I userspace/libc
@@ -197,6 +201,11 @@ $(USER_DRIVER_TEST_ELF): userspace/driver_test.c userspace/link.ld $(LIBC_OBJS)
 	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/driver_test_user.o
 	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/driver_test_user.o $(LIBC_OBJS)
 
+$(USER_NET_TEST_ELF): userspace/net_test.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/net_test_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/net_test_user.o $(LIBC_OBJS)
+
 $(USER_LS_ELF_OBJ): $(USER_LS_ELF)
 	$(LD) -r -b binary -o $@ $<
 
@@ -225,6 +234,9 @@ $(USER_PROC_TEST_ELF_OBJ): $(USER_PROC_TEST_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 $(USER_DRIVER_TEST_ELF_OBJ): $(USER_DRIVER_TEST_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_NET_TEST_ELF_OBJ): $(USER_NET_TEST_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 clean:

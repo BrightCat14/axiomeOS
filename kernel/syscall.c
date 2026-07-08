@@ -15,6 +15,7 @@
 #include "vfs.h"
 #include "fat32.h"
 #include "axiomefs.h"
+#include "socket.h"
 
 uint64_t syscall_user_rsp;
 uint64_t current_kstack_top;
@@ -68,6 +69,8 @@ extern uint8_t _binary_userspace_proc_test_elf_start[];
 extern uint8_t _binary_userspace_proc_test_elf_end[];
 extern uint8_t _binary_userspace_driver_test_elf_start[];
 extern uint8_t _binary_userspace_driver_test_elf_end[];
+extern uint8_t _binary_userspace_net_test_elf_start[];
+extern uint8_t _binary_userspace_net_test_elf_end[];
 
 extern void syscall_entry(void);
 
@@ -726,6 +729,7 @@ static const struct spawn_prog spawn_progs[] = {
     {"ipc_test", _binary_userspace_ipc_test_elf_start, _binary_userspace_ipc_test_elf_end},
     {"proc_test", _binary_userspace_proc_test_elf_start, _binary_userspace_proc_test_elf_end},
     {"driver_test", _binary_userspace_driver_test_elf_start, _binary_userspace_driver_test_elf_end},
+    {"net_test", _binary_userspace_net_test_elf_start, _binary_userspace_net_test_elf_end},
 };
 
 static uint64_t sys_spawn_cmd(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
@@ -789,6 +793,56 @@ static uint64_t sys_ps(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint6
     for (int i = 0; i < n; i++)
         ubuf[i] = kbuf[i];
     return (uint64_t)n;
+}
+
+/* ---- sockets (Phase 13) ---- */
+
+static uint64_t sys_socket_create(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a3; (void)a4; (void)a5;
+    return (uint64_t)sock_create((int)a1, (int)a2, 0);
+}
+
+static uint64_t sys_socket_bind(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    return (uint64_t)sock_bind((int)a1, (const struct sockaddr *)a2, (int)a3);
+}
+
+static uint64_t sys_socket_connect(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    return (uint64_t)sock_connect((int)a1, (const struct sockaddr *)a2, (int)a3);
+}
+
+static uint64_t sys_socket_send(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    return (uint64_t)sock_send((int)a1, (const void *)a2, (size_t)a3);
+}
+
+static uint64_t sys_socket_recv(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    return (uint64_t)sock_recv((int)a1, (void *)a2, (size_t)a3);
+}
+
+static uint64_t sys_socket_close(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    return (uint64_t)sock_close((int)a1);
+}
+
+static uint64_t sys_socket_listen(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    return (uint64_t)sock_listen((int)a1);
+}
+
+static uint64_t sys_socket_accept(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    return (uint64_t)sock_accept((int)a1);
 }
 
 /* ---- signals (Phase 11) ---- */
@@ -1145,6 +1199,14 @@ static syscall_fn syscall_table[] = {
     [SYS_SHM_ATTACH] = sys_shm_attach,
     [SYS_MKFIFO]  = sys_mkfifo,
     [SYS_DRIVER_RESCAN] = sys_drv_rescan,
+    [SYS_SOCKET_CREATE] = sys_socket_create,
+    [SYS_SOCKET_BIND]   = sys_socket_bind,
+    [SYS_SOCKET_CONNECT] = sys_socket_connect,
+    [SYS_SOCKET_SEND]   = sys_socket_send,
+    [SYS_SOCKET_RECV]   = sys_socket_recv,
+    [SYS_SOCKET_CLOSE]  = sys_socket_close,
+    [SYS_SOCKET_LISTEN] = sys_socket_listen,
+    [SYS_SOCKET_ACCEPT] = sys_socket_accept,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 

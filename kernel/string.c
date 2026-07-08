@@ -47,3 +47,11 @@ int strncmp(const char *a, const char *b, size_t n)
     }
     return 0;
 }
+
+char *strcpy(char *dst, const char *src)
+{
+    char *d = dst;
+    while ((*d++ = *src++) != 0)
+        ;
+    return dst;
+}
