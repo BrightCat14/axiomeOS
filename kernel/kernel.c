@@ -61,9 +61,10 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     printk("axiomeOS booting...\n");
 
     mb2_parse(mb2_info_addr);
-    acpi_init(acpi_rsdp_addr);
 
     pmm_init();
+    vmm_init();
+    acpi_init(acpi_rsdp_addr);
 
     if (fb_active())
     {
@@ -84,7 +85,6 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
         printk("PMM: freed\n");
     }
 
-    vmm_init();
     slab_init();
 
     printk("--- Phase 4: Memory stress test ---\n");

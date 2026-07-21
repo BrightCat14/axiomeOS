@@ -3,6 +3,7 @@
 #include "string.h"
 
 static struct acpi_rsdp *g_rsdp;
+static int g_revision;
 static struct acpi_madt *g_madt;
 
 struct ioapic_info {
@@ -31,12 +32,41 @@ static uint8_t acpi_checksum(const void *table, uint32_t length)
 
 static void *acpi_find_table(const char *signature)
 {
-    if (!g_rsdp || !g_rsdp->xsdt_addr)
+    if (!g_rsdp)
         return 0;
-    struct acpi_sdt_header *xsdt = (struct acpi_sdt_header *)(uintptr_t)g_rsdp->xsdt_addr;
-    uint32_t entries = (xsdt->length - sizeof(*xsdt)) / 8;
-    uint64_t *entry_ptr = (uint64_t *)((uintptr_t)xsdt + sizeof(*xsdt));
-    for (uint32_t i = 0; i < entries; i++)
+
+    uint32_t entry_count;
+    uint64_t *entry_ptr;
+
+    if (g_revision > 0)
+    {
+        if (!g_rsdp->xsdt_addr)
+            return 0;
+        struct acpi_sdt_header *xsdt = (struct acpi_sdt_header *)(uintptr_t)g_rsdp->xsdt_addr;
+        if (__builtin_memcmp(xsdt->signature, "XSDT", 4) != 0)
+            return 0;
+        entry_count = (xsdt->length - sizeof(*xsdt)) / 8;
+        entry_ptr = (uint64_t *)((uintptr_t)xsdt + sizeof(*xsdt));
+    }
+    else
+    {
+        if (!g_rsdp->rsdt_addr)
+            return 0;
+        struct acpi_sdt_header *rsdt = (struct acpi_sdt_header *)(uintptr_t)g_rsdp->rsdt_addr;
+        if (__builtin_memcmp(rsdt->signature, "RSDT", 4) != 0)
+            return 0;
+        entry_count = (rsdt->length - sizeof(*rsdt)) / 4;
+        uint32_t *entry32 = (uint32_t *)((uintptr_t)rsdt + sizeof(*rsdt));
+        for (uint32_t i = 0; i < entry_count; i++)
+        {
+            struct acpi_sdt_header *hdr = (struct acpi_sdt_header *)(uintptr_t)entry32[i];
+            if (__builtin_memcmp(hdr->signature, signature, 4) == 0)
+                return hdr;
+        }
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < entry_count; i++)
     {
         struct acpi_sdt_header *hdr = (struct acpi_sdt_header *)(uintptr_t)entry_ptr[i];
         if (__builtin_memcmp(hdr->signature, signature, 4) == 0)
@@ -53,23 +83,28 @@ void acpi_init(void *rsdp_addr)
         return;
     }
     g_rsdp = (struct acpi_rsdp *)rsdp_addr;
-    if (acpi_checksum(g_rsdp, g_rsdp->revision > 0 ? 36 : 20) != 0)
+    if (__builtin_memcmp(g_rsdp->signature, "RSD PTR ", 8) != 0)
+    {
+        printk("ACPI: bad RSDP signature\n");
+        g_rsdp = 0;
+        return;
+    }
+    g_revision = g_rsdp->revision;
+    uint32_t rsdp_len = g_revision > 0 ? 36 : 20;
+    if (acpi_checksum(g_rsdp, rsdp_len) != 0)
     {
         printk("ACPI: RSDP checksum failed\n");
         g_rsdp = 0;
         return;
     }
-    printk("ACPI: RSDP v%u oem=%.6s\n", g_rsdp->revision, g_rsdp->oem);
+    printk("ACPI: RSDP v%u oem=%c%c%c%c%c%c\n", g_revision,
+           g_rsdp->oem[0], g_rsdp->oem[1], g_rsdp->oem[2],
+           g_rsdp->oem[3], g_rsdp->oem[4], g_rsdp->oem[5]);
 
-    struct acpi_sdt_header *xsdt = (struct acpi_sdt_header *)(uintptr_t)g_rsdp->xsdt_addr;
-    if (!xsdt || __builtin_memcmp(xsdt->signature, "XSDT", 4) != 0)
+    if (g_revision > 0 && (!g_rsdp->xsdt_addr))
     {
-        printk("ACPI: XSDT not found\n");
-        return;
-    }
-    if (acpi_checksum(xsdt, xsdt->length) != 0)
-    {
-        printk("ACPI: XSDT checksum failed\n");
+        printk("ACPI: XSDT address is zero\n");
+        g_rsdp = 0;
         return;
     }
 

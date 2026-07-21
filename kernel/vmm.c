@@ -117,20 +117,6 @@ static uint64_t *walk_page(uint64_t *pml4, uint64_t virt, int alloc)
     return &pt[idx1];
 }
 
-static int addr_in_reserved_region(uint64_t addr)
-{
-    for (int i = 0; i < kernel_mmap.count; i++)
-    {
-        if (kernel_mmap.entries[i].type == 1)
-            continue;
-        uint64_t base = kernel_mmap.entries[i].base;
-        uint64_t end = base + kernel_mmap.entries[i].length;
-        if (addr >= base && addr < end)
-            return 1;
-    }
-    return 0;
-}
-
 void vmm_init(void)
 {
     kernel_pml4 = (uint64_t *)(uintptr_t)read_cr3();
