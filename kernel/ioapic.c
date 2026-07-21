@@ -1,5 +1,6 @@
 #include "ioapic.h"
 #include "printk.h"
+#include "vmm.h"
 
 #define IOAPIC_BASE 0xFEC00000
 
@@ -46,7 +47,7 @@ void ioapic_mask(unsigned int gsi, int mask)
 void ioapic_init(void)
 {
     unsigned int pd_idx = (IOAPIC_BASE >> 21) & 0x1FF;
-    pd_table3[pd_idx] = IOAPIC_BASE | 0x83;
+    pd_table3[pd_idx] = IOAPIC_BASE | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
     __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");
 
     ioapic = (volatile uint32_t *)IOAPIC_BASE;

@@ -1,5 +1,6 @@
 #include "framebuffer.h"
 #include "font8x16.h"
+#include "vmm.h"
 
 extern uint64_t pd_table2[512];
 
@@ -11,7 +12,7 @@ static void map_framebuffer(uintptr_t phys_addr, uintptr_t size)
     for (uintptr_t p = start; p < end; p += 0x200000)
     {
         unsigned int idx = (p >> 21) & 0x1FF;
-        pd_table2[idx] = p | 0x83;
+        pd_table2[idx] = p | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
     }
 
     __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");

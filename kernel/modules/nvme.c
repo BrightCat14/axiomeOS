@@ -22,6 +22,12 @@
  *   the OSDev page).  This is fully correct and avoids any dependency on the
  *   IRQ routing that does not exist yet.
  *
+ * Phase tag layout (NVMe spec vs QEMU):
+ *   The NVMe spec places the phase tag in bit 15 and the status code in
+ *   bits 14:0 of the completion queue entry's status field.  Early QEMU
+ *   versions (<= 8.x) reversed this: phase in bit 0, status << 1.  This
+ *   driver now conforms to the spec (phase = status >> 15).
+ *
  * Memory ordering:
  *   Queue/PRP buffers are normal cacheable RAM (DMA is cache-coherent on x86).
  *   The doorbell writes go to UC registers.  Because a UC store may become
@@ -91,9 +97,7 @@
 #define NVME_BOUNCE_PAGES 16            /* 64 KiB */
 #define NVME_BOUNCE_BYTES (NVME_BOUNCE_PAGES * PAGE_SIZE)
 
-/* Page-table bits (not in vmm.h) used to mark the MMIO BAR uncacheable. */
-#define PTE_PWT (1ULL << 3)
-#define PTE_PCD (1ULL << 4)
+/* Page-table bits used to mark the MMIO BAR uncacheable (UC). */
 #define NVME_PTE_UC (PTE_WRITE | PTE_PWT | PTE_PCD)
 
 /* ---- Data structures (see OSDev "Data structures") ---- */
@@ -122,7 +126,7 @@ struct nvme_cqe {
     uint16_t sq_head;  /* submission queue head pointer                */
     uint16_t sq_id;
     uint16_t cid;      /* command identifier echoed back              */
-    uint16_t status;   /* bit 15 = Phase tag, bits 0..14 = status code  */
+    uint16_t status;   /* bit 15 = Phase tag, bits 14:0 = status code  */
 } __attribute__((packed));
 
 /* One NVMe queue (submission + completion pair). */
@@ -324,7 +328,9 @@ static uint16_t nvme_submit(struct nvme_softc *s, struct nvme_queue *q,
        (cid), which is unique for the (single) outstanding command, rather than
        relying on the phase tag alone — this tolerates any phase/head tracking
        drift between us and the controller.  Once found we re-sync cq_head and
-       cq_phase so the next command starts clean. */
+       cq_phase so the next command starts clean.
+
+       Phase tag: NVMe spec places it in bit 15 (status >> 15). */
     for (uint64_t guard = 0; guard < 4000000ULL; guard++)
     {
         uint32_t mask = q->size - 1;
@@ -332,10 +338,7 @@ static uint16_t nvme_submit(struct nvme_softc *s, struct nvme_queue *q,
         {
             uint32_t idx = (q->cq_head + i) & mask;
             volatile struct nvme_cqe *c = &q->cq[idx];
-            /* QEMU lays out the completion status as (status << 1) | phase,
-               i.e. the phase tag is in bit 0 and the status code is shifted
-               left by one (opposite of the published NVMe layout). */
-            uint16_t phase = (uint16_t)(c->status & 1);
+            uint16_t phase = (uint16_t)(c->status >> 15);
             if (phase != q->cq_phase)
                 continue;
             if (c->cid != cid)
@@ -352,7 +355,7 @@ static uint16_t nvme_submit(struct nvme_softc *s, struct nvme_queue *q,
             nvme_write32(s, q->cq_dbl, (uint32_t)q->cq_head);
             if (out)
                 *out = *c;
-            return (c->status >> 1) & 0x7FFF;
+            return c->status & 0x7FFF;
         }
     }
     /* Timeout: dump diagnostic state. */
@@ -701,7 +704,7 @@ static int nvme_probe(struct pci_device *pdev)
     s->admin.cq_phys = s->admin_cq.phys;
     s->admin.qid = 0;
     s->admin.size = NVME_QUEUE_SIZE;
-    s->admin.cq_phase = 1;   /* QEMU posts the first completion with phase 1 */
+    s->admin.cq_phase = 1;   /* NVMe spec: first completion after enable has phase 1 */
 
     s->io.sq = (volatile struct nvme_sqe *)s->io_sq.virt;
     s->io.sq_phys = s->io_sq.phys;
