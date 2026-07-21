@@ -4,18 +4,22 @@
 
 extern uint64_t pd_table2[512];
 
-static void map_framebuffer(uintptr_t phys_addr, uintptr_t size)
+static void *map_framebuffer(uintptr_t phys_addr, uintptr_t size)
 {
     uintptr_t start = phys_addr & ~(uintptr_t)0x1FFFFF;
     uintptr_t end = phys_addr + size;
+    uintptr_t first_virt = 0;
 
     for (uintptr_t p = start; p < end; p += 0x200000)
     {
         unsigned int idx = (p >> 21) & 0x1FF;
         pd_table2[idx] = p | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
+        if (p == start)
+            first_virt = 0x80000000ULL + idx * 0x200000ULL;
     }
 
     __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");
+    return (void *)(first_virt + (phys_addr & 0x1FFFFF));
 }
 
 static struct {
@@ -52,7 +56,7 @@ void fb_init(uintptr_t addr, uint32_t width, uint32_t height,
     fb.num_rows = height / FONT_HEIGHT;
 
     if (fb.present)
-        map_framebuffer(addr, height * pitch);
+        fb.addr = (volatile uint8_t *)map_framebuffer(addr, height * pitch);
 }
 
 int fb_active(void)

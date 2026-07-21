@@ -5,6 +5,8 @@
 
 extern uint64_t mmap_max_addr;
 extern uint64_t pd_table[];
+extern uint64_t pd_table2[];
+extern uint64_t pd_table3[];
 
 static uint64_t *kernel_pml4;
 
@@ -132,6 +134,30 @@ void vmm_init(void)
         else
             pd[idx] = addr | PTE_PRESENT | PTE_WRITE | PTE_HUGE;
     }
+    flush_tlb();
+
+    pd = pd_table2;
+    for (int idx = 0; idx < 512; idx++)
+    {
+        if (pd[idx] & PTE_PRESENT) continue;
+        uint64_t addr = 0x80000000ULL + idx * 0x200000ULL;
+        if (addr_in_reserved_region(addr))
+            pd[idx] = addr | PTE_PRESENT | PTE_HUGE;
+        else
+            pd[idx] = addr | PTE_PRESENT | PTE_WRITE | PTE_HUGE;
+    }
+
+    pd = pd_table3;
+    for (int idx = 0; idx < 512; idx++)
+    {
+        if (pd[idx] & PTE_PRESENT) continue;
+        uint64_t addr = 0xC0000000ULL + idx * 0x200000ULL;
+        if (addr_in_reserved_region(addr))
+            pd[idx] = addr | PTE_PRESENT | PTE_HUGE;
+        else
+            pd[idx] = addr | PTE_PRESENT | PTE_WRITE | PTE_HUGE;
+    }
+
     flush_tlb();
 
     uint64_t pdp_page = (uint64_t)pmm_alloc_frame();
