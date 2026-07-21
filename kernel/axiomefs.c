@@ -528,6 +528,7 @@ static struct vfs_fops g_axfs_ops = {
     .create = axfs_create,
     .remove = axfs_remove,
     .write  = axfs_write,
+    .mmap   = 0,
     .inode_free = axfs_inode_free,
 };
 

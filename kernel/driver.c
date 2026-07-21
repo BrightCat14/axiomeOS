@@ -5,6 +5,9 @@
 #include "io.h"
 #include "ide.h"
 #include "serial.h"
+#include "framebuffer.h"
+#include "vmm.h"
+#include "sched.h"
 #include <stddef.h>
 
 static struct driver *g_drivers;
@@ -221,8 +224,72 @@ static int stub_probe(struct pci_device *pdev, const char *name)
 
 static int xhci_probe(struct pci_device *pdev)
 { return stub_probe(pdev, "usb0"); }
+
+/* ---- fb0 device (framebuffer) ---- */
+static long fb_read(struct device *d, uint64_t off, void *buf, size_t len)
+{
+    (void)d;
+    if (!fb_active())
+        return -1;
+    /* Not meaningful for a framebuffer, but allow reading back pixels. */
+    return -1;
+}
+
+static long fbdev_write(struct device *d, uint64_t off, const void *buf, size_t len)
+{
+    (void)d; (void)off;
+    if (!fb_active())
+        return -1;
+    fb_write((const char *)buf);
+    return (long)len;
+}
+
+static long fb_mmap(struct device *d, uint64_t off, uint64_t virt, size_t len, uint64_t flags)
+{
+    (void)d;
+    (void)flags;
+    if (!fb_active())
+        return -1;
+    struct thread *t = sched_current();
+    if (!t || !t->pml4)
+        return -1;
+    size_t pages = (len + PAGE_SIZE - 1) >> PAGE_SHIFT;
+    for (size_t i = 0; i < pages; i++)
+    {
+        uint64_t va = (uint64_t)(uintptr_t)fb_addr() + off + i * PAGE_SIZE;
+        uint64_t pa = vmm_virt_to_phys(va);
+        if (!pa)
+            return -1;
+        if (vmm_map_page_in(t->pml4, virt + i * PAGE_SIZE, pa,
+                             PTE_USER | PTE_WRITE) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+static struct dev_ops fb_ops = {
+    .read  = fb_read,
+    .write = fbdev_write,
+    .mmap  = fb_mmap,
+};
+
 static int vga_probe(struct pci_device *pdev)
-{ return stub_probe(pdev, "fb0"); }
+{
+    (void)pdev;
+    if (device_find("fb0"))
+        return 0;
+    if (!fb_active())
+        return 0;
+    struct device *d = (struct device *)kmalloc(sizeof(struct device));
+    memset(d, 0, sizeof(*d));
+    dname(d->name, "fb0");
+    d->major = 29; d->minor = 0; d->type = DEV_CHAR;
+    d->ops = fb_ops;
+    device_register(d);
+    printk("DRV: fb0 -> /Devices/fb0 (framebuffer %ux%u)\n",
+           fb_width(), fb_height());
+    return 0;
+}
 
 /* NOTE: the NVMe driver ships as a loadable module (kernel/modules/nvme.kxt)
    and is loaded at runtime via the .kxt framework (kxtload).  The built-in

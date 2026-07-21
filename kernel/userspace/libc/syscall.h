@@ -2,6 +2,7 @@
 #define AXIOME_LIBC_SYSCALL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
@@ -61,6 +62,7 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
 #define SYS_MODULE_LOAD   53
 #define SYS_MODULE_UNLOAD 54
+#define SYS_MMAP          55
 
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
@@ -202,6 +204,9 @@ int chown(const char *path, uid_t uid, gid_t gid);
 
 /* read /etc/passwd, verify credentials, return uid or -1 */
 int sys_authenticate(const char *user, const char *pass);
+
+/* ---- framebuffer mmap ---- */
+long fb_mmap(int fd, uint64_t off, void *virt, size_t len);
 
 /* ---- loadable kernel modules (.kxt) ---- */
 long kxtload(const char *path);

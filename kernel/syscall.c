@@ -186,8 +186,11 @@ static uint64_t sys_waitpid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, 
 
 static void con_putchar(char c)
 {
-    if (fb_active)
+    if (fb_active())
+    {
         fb_putchar(c);
+        fb_flush();
+    }
     serial_putchar(COM1, c);
 }
 
@@ -216,6 +219,23 @@ static uint64_t sys_write(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     size_t w = vfs_write(f->node, f->off, s, len);
     f->off += w;
     return w;
+}
+
+static uint64_t sys_mmap(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a5;
+    int fd = (int)a1;
+    uint64_t off = a2;
+    uint64_t virt = a3;
+    size_t len = a4;
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    if (fd < 0 || fd >= MAX_FD || !t->fds[fd].used)
+        return (uint64_t)-1;
+    struct vfs_file *f = &t->fds[fd];
+    if (f->kind != FD_VNODE || !f->node)
+        return (uint64_t)-1;
+    return (uint64_t)vfs_mmap(f->node, off, virt, len, 0);
 }
 
 static uint64_t sys_write_pipe(struct vfs_file *f, const char *s, size_t len)
@@ -1484,6 +1504,7 @@ static syscall_fn syscall_table[] = {
     /* loadable kernel modules (.kxt) */
     [SYS_MODULE_LOAD]   = sys_module_load,
     [SYS_MODULE_UNLOAD] = sys_module_unload,
+    [SYS_MMAP]          = sys_mmap,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 

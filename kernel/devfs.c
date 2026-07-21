@@ -142,11 +142,26 @@ static void dev_inode_free(struct vnode *n)
     kfree(n);
 }
 
+static long dev_mmap(struct vfs_super *sb, struct vnode *n, uint64_t off,
+                      uint64_t virt, size_t len, uint64_t flags)
+{
+    (void)sb;
+    if (!n || n->type == VFS_DIR || !n->priv)
+        return -1;
+    struct dev_node *dn = (struct dev_node *)n->priv;
+    if (dn->kind == DEV_ROOT || !dn->dev)
+        return -1;
+    if (!dn->dev->ops.mmap)
+        return -1;
+    return dn->dev->ops.mmap(dn->dev, off, virt, len, flags);
+}
+
 static struct vfs_fops g_dev_ops = {
     .lookup = dev_lookup,
     .read   = dev_read,
     .write  = dev_write,
     .list   = dev_list,
+    .mmap   = dev_mmap,
     .inode_free = dev_inode_free,
 };
 

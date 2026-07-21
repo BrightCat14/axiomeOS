@@ -64,6 +64,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     pmm_init();
     vmm_init();
+    fb_init_buffers();
     acpi_init(acpi_rsdp_addr);
 
     if (fb_active())
@@ -217,6 +218,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
         if ((yield_count % 5) == 0)
         {
             klog_flush();
+            fb_flush();
             sched_yield();
         }
 
