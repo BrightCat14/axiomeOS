@@ -17,5 +17,6 @@ struct mmap_info {
 };
 
 extern struct mmap_info kernel_mmap;
+extern void *acpi_rsdp_addr;
 
 #endif

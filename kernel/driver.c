@@ -233,6 +233,10 @@ static struct driver ata_drv = {
     .name = "ata-ide", .vendor = DRV_ANY, .device = DRV_ANY,
     .pci_class = 0x01, .pci_subclass = 0x01, .probe = ata_probe,
 };
+static struct driver ahci_drv = {
+    .name = "ahci", .vendor = DRV_ANY, .device = DRV_ANY,
+    .pci_class = 0x01, .pci_subclass = 0x06, .probe = xhci_probe,
+};
 static struct driver xhci_drv = {
     .name = "xhci", .vendor = DRV_ANY, .device = DRV_ANY,
     .pci_class = 0x0C, .pci_subclass = 0x03, .probe = xhci_probe,
@@ -252,6 +256,7 @@ static struct driver vga_drv = {
 void driver_init(void)
 {
     driver_register(&ata_drv);
+    driver_register(&ahci_drv);
     driver_register(&xhci_drv);
     driver_register(&vga_drv);
 

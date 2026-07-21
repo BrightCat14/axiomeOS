@@ -28,6 +28,8 @@
 #include "tcp.h"
 #include "arp.h"
 #include "module.h"
+#include "acpi.h"
+#include "mmap.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -59,6 +61,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     printk("axiomeOS booting...\n");
 
     mb2_parse(mb2_info_addr);
+    acpi_init(acpi_rsdp_addr);
 
     pmm_init();
 

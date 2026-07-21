@@ -6,6 +6,7 @@
 
 struct mmap_info kernel_mmap;
 uint64_t mmap_max_addr;
+void *acpi_rsdp_addr;
 
 #define TAG_ALIGN 8
 
@@ -114,6 +115,7 @@ void mb2_parse(unsigned long mb2_info_addr)
                 printk("  signature=%c%c%c%c%c%c%c%c\n",
                        rsdp->rsdp[0], rsdp->rsdp[1], rsdp->rsdp[2], rsdp->rsdp[3],
                        rsdp->rsdp[4], rsdp->rsdp[5], rsdp->rsdp[6], rsdp->rsdp[7]);
+                acpi_rsdp_addr = (void *)(uintptr_t)(rsdp->rsdp);
                 break;
             }
 

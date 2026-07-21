@@ -1,6 +1,7 @@
 #include "vmm.h"
 #include "pmm.h"
 #include "printk.h"
+#include "mmap.h"
 
 extern uint64_t mmap_max_addr;
 extern uint64_t pd_table[];
@@ -116,6 +117,20 @@ static uint64_t *walk_page(uint64_t *pml4, uint64_t virt, int alloc)
     return &pt[idx1];
 }
 
+static int addr_in_reserved_region(uint64_t addr)
+{
+    for (int i = 0; i < kernel_mmap.count; i++)
+    {
+        if (kernel_mmap.entries[i].type == 1)
+            continue;
+        uint64_t base = kernel_mmap.entries[i].base;
+        uint64_t end = base + kernel_mmap.entries[i].length;
+        if (addr >= base && addr < end)
+            return 1;
+    }
+    return 0;
+}
+
 void vmm_init(void)
 {
     kernel_pml4 = (uint64_t *)(uintptr_t)read_cr3();
@@ -124,7 +139,11 @@ void vmm_init(void)
     for (uint64_t addr = 0x800000; addr < mmap_max_addr; addr += 0x200000)
     {
         int idx = addr >> 21;
-        if (idx < 512 && !(pd[idx] & PTE_PRESENT))
+        if (idx >= 512) break;
+        if (pd[idx] & PTE_PRESENT) continue;
+        if (addr_in_reserved_region(addr))
+            pd[idx] = addr | PTE_PRESENT | PTE_HUGE;
+        else
             pd[idx] = addr | PTE_PRESENT | PTE_WRITE | PTE_HUGE;
     }
     flush_tlb();
