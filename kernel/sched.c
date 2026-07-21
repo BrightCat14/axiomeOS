@@ -446,7 +446,7 @@ int sched_protected_kill(struct thread *victim, struct thread *killer)
 {
     if (!sched_is_protected(victim))
         return 0;
-    if (killer && killer->role == ROLE_USER)
+    if (killer && killer->role != ROLE_SYSTEM)
         return -EPERM;
     kernel_panic(victim == &main_thread ? "Attempted to kill main!"
                                         : "Attempted to kill idle!");
