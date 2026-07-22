@@ -324,6 +324,7 @@ static struct vfs_fops g_proc_ops = {
     .lookup = proc_lookup,
     .read   = proc_read,
     .list   = proc_list,
+    .mmap   = 0,
     .inode_free = proc_inode_free,
 };
 

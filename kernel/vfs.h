@@ -57,6 +57,9 @@ struct vfs_fops {
     int (*remove)(struct vfs_super *sb, const char *relpath);
     size_t (*write)(struct vfs_super *sb, struct vnode *node, size_t off,
                     const void *buf, size_t len);
+    /* Map device memory into a process's address space. */
+    long (*mmap)(struct vfs_super *sb, struct vnode *node, uint64_t off,
+                 uint64_t virt, size_t len, uint64_t flags);
     /* Release a vnode produced by this fs's lookup (may be a no-op). */
     void (*inode_free)(struct vnode *node);
 };
@@ -155,6 +158,7 @@ int vfs_remove(const char *path, const char *cwd);
 
 size_t vfs_read(struct vnode *n, size_t off, void *buf, size_t len);
 size_t vfs_write(struct vnode *n, size_t off, const void *buf, size_t len);
+long vfs_mmap(struct vnode *n, uint64_t off, uint64_t virt, size_t len, uint64_t flags);
 
 /* Read an entire regular file (resolved from `path`) into a freshly kmalloc'd
    buffer. Returns 0 on success (sets *out_buf / *out_size) or -1 on failure.

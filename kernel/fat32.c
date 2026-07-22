@@ -341,6 +341,7 @@ static struct vfs_fops g_fat32_ops = {
     .create = 0,
     .remove = 0,
     .write  = 0,
+    .mmap   = 0,
     .inode_free = fat32_inode_free,
 };
 

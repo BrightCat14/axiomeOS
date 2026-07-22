@@ -5,10 +5,23 @@
 
 void fb_init(uintptr_t addr, uint32_t width, uint32_t height,
              uint32_t pitch, uint8_t bpp, uint8_t type);
+void fb_init_buffers(void);
 void fb_putchar(char c);
 void fb_write(const char *s);
 void fb_scroll(void);
 void fb_clear(void);
+void fb_flush(void);
 int fb_active(void);
+
+void fb_set_color(uint32_t fg, uint32_t bg);
+void fb_get_color(uint32_t *fg, uint32_t *bg);
+void fb_set_cursor(uint32_t x, uint32_t y);
+void fb_get_cursor(uint32_t *x, uint32_t *y);
+void fb_putchar_at(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
+
+uint32_t fb_width(void);
+uint32_t fb_height(void);
+uint32_t fb_pitch(void);
+volatile void *fb_addr(void);
 
 #endif
