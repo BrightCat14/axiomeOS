@@ -219,6 +219,11 @@ int  sys_authenticate(const char *user, const char *pass)
     return -1;
 }
 
+long fb_mmap(int fd, uint64_t off, void *virt, size_t len)
+{
+    return syscall(SYS_MMAP, (long)fd, (long)off, (long)virt, (long)len, 0, 0);
+}
+
 /* ---- loadable kernel modules (.kxt) ---- */
 long kxtload(const char *path)
 {

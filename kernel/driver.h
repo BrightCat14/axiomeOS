@@ -17,6 +17,7 @@ struct pci_device;
 struct dev_ops {
     long (*read)(struct device *dev, uint64_t off, void *buf, size_t len);
     long (*write)(struct device *dev, uint64_t off, const void *buf, size_t len);
+    long (*mmap)(struct device *dev, uint64_t off, uint64_t virt, size_t len, uint64_t flags);
 };
 
 struct device {

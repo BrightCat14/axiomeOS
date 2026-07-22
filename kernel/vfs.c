@@ -408,6 +408,7 @@ static struct vfs_fops g_ramfs_ops = {
     .create = ramfs_create,
     .remove = ramfs_remove,
     .write  = ramfs_write,
+    .mmap   = 0,
     .inode_free = ramfs_inode_free,
 };
 
@@ -570,6 +571,13 @@ int vfs_read_file(const char *path, uint8_t **out_buf, size_t *out_size)
     *out_buf = buf;
     *out_size = sz;
     return 0;
+}
+
+long vfs_mmap(struct vnode *n, uint64_t off, uint64_t virt, size_t len, uint64_t flags)
+{
+    if (!n || !n->sb || !n->sb->ops->mmap)
+        return -1;
+    return n->sb->ops->mmap(n->sb, n, off, virt, len, flags);
 }
 
 int vfs_list(const char *path, const char *cwd, struct vfs_dirent *ents, int max)

@@ -16,6 +16,8 @@
 #define PTE_DIRTY    (1UL << 6)
 #define PTE_HUGE     (1UL << 7)
 #define PTE_GLOBAL   (1UL << 8)
+#define PTE_PWT     (1UL << 3)
+#define PTE_PCD     (1UL << 4)
 #define PTE_NX       (1UL << 63)
 
 void vmm_init(void);

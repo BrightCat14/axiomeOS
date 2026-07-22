@@ -147,6 +147,7 @@ void printk(const char *fmt, ...)
     va_start(ap, fmt);
     emit(fmt, ap, console_putchar);
     va_end(ap);
+    fb_flush();
 }
 
 void klog(const char *fmt, ...)

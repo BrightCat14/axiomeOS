@@ -28,6 +28,8 @@
 #include "tcp.h"
 #include "arp.h"
 #include "module.h"
+#include "acpi.h"
+#include "mmap.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -61,6 +63,9 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     mb2_parse(mb2_info_addr);
 
     pmm_init();
+    vmm_init();
+    fb_init_buffers();
+    acpi_init(acpi_rsdp_addr);
 
     if (fb_active())
     {
@@ -81,7 +86,6 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
         printk("PMM: freed\n");
     }
 
-    vmm_init();
     slab_init();
 
     printk("--- Phase 4: Memory stress test ---\n");
@@ -214,6 +218,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
         if ((yield_count % 5) == 0)
         {
             klog_flush();
+            fb_flush();
             sched_yield();
         }
 

@@ -17,5 +17,20 @@ struct mmap_info {
 };
 
 extern struct mmap_info kernel_mmap;
+extern void *acpi_rsdp_addr;
+
+static inline int addr_in_reserved_region(uint64_t addr)
+{
+    for (int i = 0; i < kernel_mmap.count; i++)
+    {
+        if (kernel_mmap.entries[i].type == 1)
+            continue;
+        uint64_t base = kernel_mmap.entries[i].base;
+        uint64_t end = base + kernel_mmap.entries[i].length;
+        if (addr >= base && addr < end)
+            return 1;
+    }
+    return 0;
+}
 
 #endif

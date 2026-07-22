@@ -86,6 +86,12 @@ void pmm_init(void)
     bm_set(0);
     free_frames--;
 
+    for (uint64_t a = 0x800000; a < mmap_max_addr; a += 0x200000)
+    {
+        if (addr_in_reserved_region(a))
+            mark_used(a, 0x200000);
+    }
+
     next_hint = 0;
     printk("PMM: %lu free frames (%lu KB)\n", free_frames, free_frames << (PAGE_SHIFT - 10));
 }

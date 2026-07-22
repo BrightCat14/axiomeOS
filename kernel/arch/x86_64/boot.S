@@ -128,6 +128,13 @@ _start:
 
 .code64
 1:
+    mov rax, cr4
+    btr rax, 20
+    btr rax, 21
+    btr rax, 22
+    btr rax, 23
+    mov cr4, rax
+
     lea rax, [rip + gdt_ptr_64]
     lgdt [rax]
 

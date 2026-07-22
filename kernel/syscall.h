@@ -62,6 +62,7 @@
 /* ---- loadable kernel modules (.kxt) ---- */
 #define SYS_MODULE_LOAD   53  /* a1 = path (userspace ptr)          */
 #define SYS_MODULE_UNLOAD 54  /* a1 = name (userspace ptr)          */
+#define SYS_MMAP          55  /* a1=fd, a2=off, a3=virt, a4=len, a5=flags */
 
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000

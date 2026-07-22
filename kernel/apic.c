@@ -1,6 +1,7 @@
 #include "apic.h"
 #include "printk.h"
 #include "pmm.h"
+#include "vmm.h"
 
 #define IA32_APIC_BASE_MSR 0x1B
 #define APIC_DEFAULT_BASE 0xFEE00000ULL
@@ -62,7 +63,7 @@ void apic_init(void)
         apic_phys = APIC_DEFAULT_BASE;
 
     unsigned int pd_idx = (apic_phys >> 21) & 0x1FF;
-    pd_table3[pd_idx] = apic_phys | 0x83;
+    pd_table3[pd_idx] = apic_phys | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
     __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");
 
     apic_base = (volatile uint32_t *)apic_phys;

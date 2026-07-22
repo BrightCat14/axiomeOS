@@ -40,17 +40,22 @@ static int wait_ready(uint16_t base, uint16_t ctrl)
 {
     ata_delay_400ns(ctrl);
     uint8_t s;
-    /* Wait for BSY to clear. */
-    do { s = inb(base + REG_STATUS); } while (s & ST_BSY);
+    uint64_t timeout = 31000000;
+    do {
+        s = inb(base + REG_STATUS);
+        if (timeout-- == 0) return -1;
+    } while (s & ST_BSY);
     return (s & ST_ERR) ? -1 : 0;
 }
 
 static int wait_drq(uint16_t base, uint16_t ctrl)
 {
     uint8_t s;
+    uint64_t timeout = 30000000;
     do {
         s = inb(base + REG_STATUS);
         if (s & ST_ERR) return -1;
+        if (timeout-- == 0) return -1;
     } while ((s & ST_BSY) || !(s & ST_DRQ));
     return 0;
 }
@@ -248,11 +253,12 @@ int blk_write(struct block_dev *bd, uint64_t lba, uint32_t count, const void *bu
 
         for (uint32_t i = 0; i < chunk; i++)
         {
-            /* Wait for the drive to be ready to accept the write. */
             uint8_t s;
+            uint64_t write_timeout = 30000000;
             do {
                 s = inb(base + REG_STATUS);
                 if (s & ST_ERR) return -1;
+                if (write_timeout-- == 0) return -1;
             } while ((s & ST_BSY) || !(s & ST_DRQ));
             outsw(base + REG_DATA, p, 256);
             p += 512;
