@@ -4,7 +4,9 @@ BUILD_DIR := $(REPO_ROOT)/build
 PYTHON := python3
 HOSTCC := gcc
 
-.PHONY: all kernel iso run run-fb debug clean distclean disk.img
+DEV ?= /dev/sdx
+
+.PHONY: all kernel iso run run-fb debug clean distclean disk.img install
 
 all: iso
 
@@ -57,6 +59,9 @@ debug: iso disk.img
 		-cdrom $(BUILD_DIR)/axiome.iso \
 		-drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide,index=0,media=disk \
 		-m 512M -serial stdio -s -S
+
+install: disk.img
+	sudo tools/install.sh $(DEV) $(BUILD_DIR)
 
 clean:
 	rm -rf $(BUILD_DIR)/isodir $(BUILD_DIR)/boot.fat

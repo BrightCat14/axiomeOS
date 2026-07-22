@@ -5,10 +5,12 @@ Usage: mkpart.py <disk.img>
 
 The image must already exist (e.g. created with `dd`). Two partitions are
 written:
-  * Partition 1: FAT32 "BOOT" (type 0x0C), LBA 2048, 130024 sectors (~63.5MB)
+  * Partition 1: FAT32 "BOOT" (type 0xEF), LBA 2048, 130024 sectors (~63.5MB)
   * Partition 2: axiomefs "ROOT" (type 0x83), LBA 131072, 393216 sectors (192MB)
 
-See docs/user-rank-system-spec.md section 11.3.
+Partition 1 is type 0xEF (EFI System Partition) so UEFI firmware
+recognises it and scans for /EFI/BOOT/BOOTX64.EFI.  The GRUB bootloader
+is installed there by the install target.
 """
 import struct
 import sys
@@ -22,12 +24,12 @@ def write_mbr(img_path):
         img[510] = 0x55
         img[511] = 0xAA
 
-        # Partition 1: FAT32, LBA 2048, 130024 sectors (63.5MB).
+        # Partition 1: EFI System Partition, LBA 2048, 130024 sectors (63.5MB).
         off = 446
         struct.pack_into('<BBBBBBBB', img, off,
-            0x00,            # status (not bootable)
+            0x80,            # status (bootable)
             0x20, 0x00, 0x00,  # CHS of first sector
-            0x0C,            # type: FAT32 LBA
+            0xEF,            # type: EFI System Partition
             0xFF, 0xFF, 0xFF,  # CHS of last sector
         )
         struct.pack_into('<II', img, off + 8, 2048, 130024)
