@@ -221,6 +221,46 @@ static uint64_t sys_write(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     return w;
 }
 
+static long copy_to_user(void *dst, const void *src, size_t n)
+{
+    if (!dst)
+        return -EFAULT;
+    memcpy(dst, src, n);
+    return 0;
+}
+
+static uint64_t sys_uname(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    struct utsname *u = (struct utsname *)a1;
+    if (!u)
+        return (uint64_t)-EFAULT;
+
+    struct utsname k;
+    strncpy(k.sysname, "axiomeKernel", sizeof(k.sysname));
+    strncpy(k.nodename, "localhost", sizeof(k.nodename));
+    strncpy(k.release, "0.1.0", sizeof(k.release));
+#ifndef GIT_COMMIT
+#define GIT_COMMIT "unknown"
+#endif
+#ifndef BUILD_TIME
+#define BUILD_TIME "unknown"
+#endif
+    strncpy(k.version, "axiomeOS-" GIT_COMMIT "-" BUILD_TIME "-" __VERSION__,
+            sizeof(k.version));
+    strncpy(k.machine,
+#ifdef __x86_64__
+            "x86_64",
+#else
+            "unknown",
+#endif
+            sizeof(k.machine));
+    k.domainname[0] = 0;
+
+    long r = copy_to_user(u, &k, sizeof(k));
+    return (uint64_t)r;
+}
+
 static uint64_t sys_mmap(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
 {
     (void)a5;
@@ -1505,6 +1545,7 @@ static syscall_fn syscall_table[] = {
     [SYS_MODULE_LOAD]   = sys_module_load,
     [SYS_MODULE_UNLOAD] = sys_module_unload,
     [SYS_MMAP]          = sys_mmap,
+    [SYS_UNAME]         = sys_uname,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 
