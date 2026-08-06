@@ -61,5 +61,6 @@ void acpi_init(void *rsdp_addr);
 int  acpi_ioapic_count(void);
 int  acpi_ioapic_info(int idx, uint64_t *addr, uint32_t *gsi_base);
 int  acpi_iso_lookup(uint8_t irq, uint32_t *gsi, uint16_t *flags);
+int  acpi_oem_is_bochs(void);
 
 #endif

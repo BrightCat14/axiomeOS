@@ -8,6 +8,7 @@
 #include "framebuffer.h"
 #include "vmm.h"
 #include "sched.h"
+#include "xhci.h"
 #include <stddef.h>
 
 static struct driver *g_drivers;
@@ -222,8 +223,8 @@ static int stub_probe(struct pci_device *pdev, const char *name)
     return 0;
 }
 
-static int xhci_probe(struct pci_device *pdev)
-{ return stub_probe(pdev, "usb0"); }
+static int ahci_stub_probe(struct pci_device *pdev)
+{ return stub_probe(pdev, "ahci0"); }
 
 /* ---- fb0 device (framebuffer) ---- */
 static long fb_read(struct device *d, uint64_t off, void *buf, size_t len)
@@ -302,7 +303,7 @@ static struct driver ata_drv = {
 };
 static struct driver ahci_drv = {
     .name = "ahci", .vendor = DRV_ANY, .device = DRV_ANY,
-    .pci_class = 0x01, .pci_subclass = 0x06, .probe = xhci_probe,
+    .pci_class = 0x01, .pci_subclass = 0x06, .probe = ahci_stub_probe,
 };
 static struct driver xhci_drv = {
     .name = "xhci", .vendor = DRV_ANY, .device = DRV_ANY,

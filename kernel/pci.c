@@ -128,3 +128,97 @@ uint64_t pci_bar_addr(const struct pci_device *p, int idx)
     }
     return (uint64_t)(raw & 0xFFFFFFF0);
 }
+
+/* ------------------------------------------------------------------ *
+ * PCI Capability List
+ * ------------------------------------------------------------------ */
+uint8_t pci_find_cap(uint8_t bus, uint8_t dev, uint8_t func, uint8_t cap_id)
+{
+    uint32_t status = pci_read32(bus, dev, func, 0x04);
+    if (!(status & (1 << 4)))
+        return 0;
+    uint8_t ptr = (uint8_t)(pci_read32(bus, dev, func, 0x34) & 0xFF);
+    for (int i = 0; i < 48 && ptr; i++)
+    {
+        uint32_t cap = pci_read32(bus, dev, func, ptr);
+        if ((cap & 0xFF) == cap_id)
+            return ptr;
+        ptr = (uint8_t)((cap >> 8) & 0xFF);
+    }
+    return 0;
+}
+
+uint8_t pci_find_cap_pdev(const struct pci_device *pdev, uint8_t cap_id)
+{
+    return pci_find_cap(pdev->bus, pdev->dev, pdev->func, cap_id);
+}
+
+/* ------------------------------------------------------------------ *
+ * MSI Enable
+ * Message Address = 0xFEE00000 | (apic_id << 12) | 0x0F00 (fixed, edge)
+ * Message Data    = vector (edge-triggered, fixed delivery)
+ * ------------------------------------------------------------------ */
+int pci_msi_enable(uint8_t bus, uint8_t dev, uint8_t func, uint8_t vector)
+{
+    uint8_t cap = pci_find_cap(bus, dev, func, 0x05);
+    if (!cap)
+        return -1;
+
+    uint32_t msg_addr = 0xFEE00000u | (8u << 12);  /* BSP APIC ID is usually 0 */
+    uint16_t msg_data = vector;
+
+    uint32_t ctrl = pci_read32(bus, dev, func, cap + 2) >> 16;
+
+    int msi64 = (ctrl >> 7) & 1;  /* 64-bit capable? */
+    int mmc   = (ctrl >> 1) & 7;  /* Multiple Message Capable */
+
+    uint16_t flags = (uint16_t)pci_read32(bus, dev, func, cap);
+    flags &= ~(7 << 1);
+    flags |= (mmc << 1);
+    flags |= 1;
+
+    if (msi64)
+    {
+        pci_write32(bus, dev, func, cap + 4, msg_addr);
+        pci_write32(bus, dev, func, cap + 8, 0);
+        pci_write32(bus, dev, func, cap + 0xC, (uint32_t)msg_data);
+    }
+    else
+    {
+        pci_write32(bus, dev, func, cap + 4, msg_addr);
+        pci_write32(bus, dev, func, cap + 8, (uint32_t)msg_data);
+    }
+
+    pci_write32(bus, dev, func, cap, flags);
+    return 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * MSI-X Enable (single vector, table_index 0)
+ * ------------------------------------------------------------------ */
+int pci_msix_enable(uint8_t bus, uint8_t dev, uint8_t func, uint8_t vector,
+                    uint64_t table_bar_phys, int table_index)
+{
+    uint8_t cap = pci_find_cap(bus, dev, func, 0x11);
+    if (!cap)
+        return -1;
+
+    uint32_t bir = pci_read32(bus, dev, func, cap + 4);
+    (void)bir;
+
+    uint32_t msg_addr = 0xFEE00000u | (0u << 12);
+    uint32_t msg_data = vector;
+
+    volatile uint32_t *entry = (volatile uint32_t *)(uintptr_t)(table_bar_phys + table_index * 16);
+    entry[0] = msg_addr;
+    entry[1] = 0;
+    entry[2] = msg_data;
+    entry[3] = 1;
+
+    uint16_t flags = (uint16_t)pci_read32(bus, dev, func, cap);
+    flags |= (1 << 15);
+    uint32_t cw = flags;
+    cw |= ((uint32_t)pci_read32(bus, dev, func, cap + 4)) << 16;
+    pci_write32(bus, dev, func, cap, cw & 0xFFFF);
+    return 0;
+}

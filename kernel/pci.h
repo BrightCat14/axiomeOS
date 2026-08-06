@@ -36,4 +36,13 @@ struct pci_device *pci_first(void);
 /* Physical address of BAR `idx` (MMIO address or IO port). 0 if unimplemented. */
 uint64_t pci_bar_addr(const struct pci_device *p, int idx);
 
+/* Capability list */
+uint8_t pci_find_cap(uint8_t bus, uint8_t dev, uint8_t func, uint8_t cap_id);
+uint8_t pci_find_cap_pdev(const struct pci_device *pdev, uint8_t cap_id);
+
+/* MSI / MSI-X */
+int  pci_msi_enable(uint8_t bus, uint8_t dev, uint8_t func, uint8_t vector);
+int  pci_msix_enable(uint8_t bus, uint8_t dev, uint8_t func, uint8_t vector,
+                     uint64_t table_bar_phys, int table_index);
+
 #endif

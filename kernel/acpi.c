@@ -188,10 +188,19 @@ int acpi_iso_lookup(uint8_t irq, uint32_t *gsi, uint16_t *flags)
     {
         if (g_isos[i].irq == irq)
         {
-            if (gsi) *gsi = g_isos[i].gsi;
-            if (flags) *flags = g_isos[i].flags;
+            *gsi = g_isos[i].gsi;
+            *flags = g_isos[i].flags;
             return 0;
         }
     }
     return -1;
+}
+
+int acpi_oem_is_bochs(void)
+{
+    if (!g_rsdp)
+        return 0;
+    return (g_rsdp->oem[0] == 'B' && g_rsdp->oem[1] == 'O' &&
+            g_rsdp->oem[2] == 'C' && g_rsdp->oem[3] == 'H' &&
+            g_rsdp->oem[4] == 'S');
 }

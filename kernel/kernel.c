@@ -30,6 +30,7 @@
 #include "module.h"
 #include "acpi.h"
 #include "mmap.h"
+#include "xhci.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -207,6 +208,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     while (1)
     {
         softirq_poll();
+        xhci_poll_events();
         netdev_poll_all();
 
         yield_count++;

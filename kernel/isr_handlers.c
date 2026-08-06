@@ -8,6 +8,7 @@
 #include "vmm.h"
 #include "pmm.h"
 #include "sched.h"
+#include "irq.h"
 
 static const char *exception_names[] = {
     [0]  = "Divide Error",
@@ -111,6 +112,11 @@ void isr_handler(struct isr_frame *frame)
     {
         serial_irq_handler();
         apic_eoi();
+    }
+    else if (frame->int_no >= 0x30)
+    {
+        if (irq_dispatch(frame) != 0)
+            apic_eoi();
     }
 }
 

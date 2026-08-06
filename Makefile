@@ -6,7 +6,7 @@ HOSTCC := gcc
 
 DEV ?= /dev/sdx
 
-.PHONY: all kernel iso run run-fb debug clean distclean disk.img install
+.PHONY: all kernel iso run run-fb run-usb-kbd run-usb-storage debug clean distclean disk.img install
 
 all: iso
 
@@ -53,6 +53,22 @@ run-fb: iso disk.img
 		-cdrom $(BUILD_DIR)/axiome.iso \
 		-drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide,index=0,media=disk \
 		-m 512M -serial stdio -vga std -display sdl
+
+run-usb-kbd: iso disk.img
+	qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
+		-cdrom $(BUILD_DIR)/axiome.iso \
+		-drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide,index=0,media=disk \
+		-m 512M -serial stdio -display sdl \
+		-usb -device usb-kbd
+
+run-usb-storage: iso disk.img
+	qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
+		-cdrom $(BUILD_DIR)/axiome.iso \
+		-drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide,index=0,media=disk \
+		-m 512M -serial stdio -display sdl \
+		-drive file=/tmp/usb_stick.img,if=none,id=usbstick,format=raw \
+		-device qemu-xhci,id=xhci \
+		-device usb-storage,drive=usbstick,bus=xhci.0
 
 debug: iso disk.img
 	qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
