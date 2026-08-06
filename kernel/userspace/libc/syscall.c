@@ -113,7 +113,6 @@ long driver_rescan(void)
 long sys_getpid(void) { return syscall(SYS_GETPID, 0, 0, 0, 0, 0, 0); }
 long sys_yield(void) { return syscall(SYS_YIELD, 0, 0, 0, 0, 0, 0); }
 long sys_fork(void)   { return syscall(SYS_FORK,   0, 0, 0, 0, 0, 0); }
-long sys_spawn(int which) { return syscall(SYS_SPAWN, (long)which, 0, 0, 0, 0, 0); }
 long sys_spawn_cmd(const char *cmdline, size_t len)
 {
     return syscall(SYS_SPAWN_CMD, (long)cmdline, (long)len, 0, 0, 0, 0);

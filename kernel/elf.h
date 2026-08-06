@@ -53,7 +53,6 @@ int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
               uint64_t *entry, uint64_t *stack_top, int argc, char **argv);
 
 int exec_user_program(const uint8_t *elf, size_t size, const char *name);
-int spawn_process(const uint8_t *elf, size_t size, const char *name);
 int spawn_process_with_args(const uint8_t *elf, size_t size, const char *name,
                             int argc, char **argv);
 int fork_process(uint64_t rip, uint64_t rsp, uint64_t rflags,

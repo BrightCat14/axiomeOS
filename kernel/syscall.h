@@ -7,7 +7,6 @@
 #define SYS_YIELD  1
 #define SYS_EXIT   2
 #define SYS_FORK   3
-#define SYS_SPAWN  4
 #define SYS_GETPID 5
 #define SYS_WAITPID 6
 #define SYS_WRITE  7
