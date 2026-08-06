@@ -63,6 +63,7 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_MODULE_LOAD   53
 #define SYS_MODULE_UNLOAD 54
 #define SYS_MMAP          55
+#define SYS_UNAME         56
 
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
@@ -211,5 +212,17 @@ long fb_mmap(int fd, uint64_t off, void *virt, size_t len);
 /* ---- loadable kernel modules (.kxt) ---- */
 long kxtload(const char *path);
 long kxtunload(const char *name);
+
+/* ---- system info ---- */
+#define UTSNAME_LEN 65
+struct utsname {
+    char sysname[UTSNAME_LEN];
+    char nodename[UTSNAME_LEN];
+    char release[UTSNAME_LEN];
+    char version[UTSNAME_LEN];
+    char machine[UTSNAME_LEN];
+    char domainname[UTSNAME_LEN];
+};
+int uname(struct utsname *buf);
 
 #endif

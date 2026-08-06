@@ -64,6 +64,9 @@
 #define SYS_MODULE_UNLOAD 54  /* a1 = name (userspace ptr)          */
 #define SYS_MMAP          55  /* a1=fd, a2=off, a3=virt, a4=len, a5=flags */
 
+/* ---- system info ---- */
+#define SYS_UNAME         56  /* a1 = struct utsname * (userspace ptr) */
+
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000
 #define S_IFDIR 0x4000
@@ -74,6 +77,17 @@ struct stat {
     uint32_t st_mode;
     uint32_t st_nlink;
     uint32_t st_ino;
+};
+
+/* System identity structure returned by uname (POSIX utsname). */
+#define UTSNAME_LEN 65
+struct utsname {
+    char sysname[UTSNAME_LEN];
+    char nodename[UTSNAME_LEN];
+    char release[UTSNAME_LEN];
+    char version[UTSNAME_LEN];
+    char machine[UTSNAME_LEN];
+    char domainname[UTSNAME_LEN];
 };
 
 void syscall_init(void);
