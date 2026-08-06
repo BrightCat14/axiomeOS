@@ -34,24 +34,28 @@
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
 
-extern uint8_t _binary_userspace_init_elf_start[];
-extern uint8_t _binary_userspace_init_elf_end[];
-
-static void exec_embedded_init(void)
+/* Load the init program from the root partition and start it as PID 1.
+   The buffer is freed after exec_user_program() copies it into the new
+   address space. */
+static void exec_init_from_disk(void)
 {
-    uint8_t *start = _binary_userspace_init_elf_start;
-    size_t size = (size_t)(_binary_userspace_init_elf_end - start);
-    printk("Init: embedded ELF is %lu bytes\n", size);
-    exec_user_program(start, size, "init");
+    uint8_t *buf = 0;
+    size_t size = 0;
+    if (vfs_read_file("/bin/init", &buf, &size) != 0)
+    {
+        printk("Init: cannot load /bin/init from disk\n");
+        return;
+    }
+    printk("Init: loaded %lu bytes from /bin/init\n", size);
+    exec_user_program(buf, size, "init");
+    kfree(buf);
 }
 
 /* Respawn the userspace init process after it has exited. */
 void kernel_respawn_init(void)
 {
-    uint8_t *start = _binary_userspace_init_elf_start;
-    size_t size = (size_t)(_binary_userspace_init_elf_end - start);
     printk("Init: respawning userspace init\n");
-    exec_user_program(start, size, "init");
+    exec_init_from_disk();
 }
 
 void kmain(unsigned long magic, unsigned long mb2_info_addr)
@@ -182,7 +186,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     uint64_t sys_ret = syscall_dispatch(SYS_PRINT, (uint64_t)"hello from syscall dispatch", 0, 0, 0, 0);
     printk("Syscall dispatch returned: %lu\n", sys_ret);
 
-    exec_embedded_init();
+    exec_init_from_disk();
 
     printk("Trying demand paging via fault...\n");
     uint64_t *dp_fault = (uint64_t *)0xFFFFFE0000300000ULL;

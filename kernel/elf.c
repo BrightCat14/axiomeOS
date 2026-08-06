@@ -208,13 +208,6 @@ int exec_user_program(const uint8_t *elf, size_t size, const char *name)
     return 0;
 }
 
-int spawn_process(const uint8_t *elf, size_t size, const char *name)
-{
-    char *av[1];
-    av[0] = (char *)name;
-    return spawn_process_with_args(elf, size, name, 1, av);
-}
-
 int spawn_process_with_args(const uint8_t *elf, size_t size, const char *name,
                             int argc, char **argv)
 {
