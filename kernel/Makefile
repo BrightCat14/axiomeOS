@@ -68,6 +68,10 @@ USER_WHOAMI_ELF := userspace/whoami.elf
 USER_WHOAMI_ELF_OBJ := $(BUILD_DIR)/whoami_elf.o
 C_OBJS += $(USER_WHOAMI_ELF_OBJ)
 
+USER_UNAME_ELF := userspace/uname.elf
+USER_UNAME_ELF_OBJ := $(BUILD_DIR)/uname_elf.o
+C_OBJS += $(USER_UNAME_ELF_OBJ)
+
 USER_LOGIN_ELF := userspace/login.elf
 USER_LOGIN_ELF_OBJ := $(BUILD_DIR)/login_elf.o
 C_OBJS += $(USER_LOGIN_ELF_OBJ)
@@ -229,6 +233,11 @@ $(USER_WHOAMI_ELF): userspace/whoami.c userspace/link.ld $(LIBC_OBJS)
 	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/whoami_user.o
 	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/whoami_user.o $(LIBC_OBJS)
 
+$(USER_UNAME_ELF): userspace/uname.c userspace/link.ld $(LIBC_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/uname_user.o
+	$(LD) -T userspace/link.ld -o $@ $(BUILD_DIR)/uname_user.o $(LIBC_OBJS)
+
 $(USER_LOGIN_ELF): userspace/login.c userspace/link.ld $(LIBC_OBJS)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/login_user.o
@@ -293,6 +302,9 @@ $(USER_TOUCH_ELF_OBJ): $(USER_TOUCH_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 $(USER_WHOAMI_ELF_OBJ): $(USER_WHOAMI_ELF)
+	$(LD) -r -b binary -o $@ $<
+
+$(USER_UNAME_ELF_OBJ): $(USER_UNAME_ELF)
 	$(LD) -r -b binary -o $@ $<
 
 $(USER_LOGIN_ELF_OBJ): $(USER_LOGIN_ELF)
