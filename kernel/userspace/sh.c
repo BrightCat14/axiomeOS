@@ -143,7 +143,7 @@ static void print_help(void)
     puts("  pwd");
     puts("  clear");
     puts("");
-    puts("External: hello, cat, ls, mkdir, rm, touch, whoami");
+    puts("External: hello, cat, ls, mkdir, rm, touch, whoami, uname");
     puts("");
 }
 
