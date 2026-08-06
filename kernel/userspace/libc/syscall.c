@@ -233,3 +233,8 @@ long kxtunload(const char *name)
 {
     return syscall(SYS_MODULE_UNLOAD, (long)name, 0, 0, 0, 0, 0);
 }
+
+int uname(struct utsname *buf)
+{
+    return (int)syscall(SYS_UNAME, (long)buf, 0, 0, 0, 0, 0);
+}

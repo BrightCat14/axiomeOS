@@ -10,6 +10,8 @@ CFLAGS += -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2
 CFLAGS += -O2 -g -pipe
 CFLAGS += -Wall -Wextra -Wpedantic
 CFLAGS += -I$(REPO_ROOT)
+CFLAGS += -DGIT_COMMIT=\"$(shell git rev-parse --short HEAD)\"
+CFLAGS += -DBUILD_TIME=\"$(shell date +%s)\"
 
 LDFLAGS = -nostdlib -T $(REPO_ROOT)/linker.ld
 
