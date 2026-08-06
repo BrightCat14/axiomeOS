@@ -52,6 +52,7 @@ Binaries/ipc_test       0755  0  0  f  bin:kernel/userspace/ipc_test.elf
 Binaries/proc_test      0755  0  0  f  bin:kernel/userspace/proc_test.elf
 Binaries/driver_test       0755  0  0  f  bin:kernel/userspace/driver_test.elf
 Binaries/net_test           0755  0  0  f  bin:kernel/userspace/net_test.elf
+Binaries/kill               0755  0  0  f  bin:kernel/userspace/kill.elf
 Binaries/kxtload            0755  0  0  f  bin:kernel/userspace/kxtload.elf
 Binaries/kxtunload          0755  0  0  f  bin:kernel/userspace/kxtunload.elf
 

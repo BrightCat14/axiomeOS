@@ -41,58 +41,6 @@ static int fd_alloc(struct thread *t)
 
 static uint64_t sys_write_pipe(struct vfs_file *f, const char *s, size_t len);
 
-extern uint8_t _binary_userspace_init_elf_start[];
-extern uint8_t _binary_userspace_init_elf_end[];
-extern uint8_t _binary_userspace_hello_elf_start[];
-extern uint8_t _binary_userspace_hello_elf_end[];
-extern uint8_t _binary_userspace_cat_elf_start[];
-extern uint8_t _binary_userspace_cat_elf_end[];
-extern uint8_t _binary_userspace_echo_elf_start[];
-extern uint8_t _binary_userspace_echo_elf_end[];
-extern uint8_t _binary_userspace_sh_elf_start[];
-extern uint8_t _binary_userspace_sh_elf_end[];
-extern uint8_t _binary_userspace_ls_elf_start[];
-extern uint8_t _binary_userspace_ls_elf_end[];
-extern uint8_t _binary_userspace_mkdir_elf_start[];
-extern uint8_t _binary_userspace_mkdir_elf_end[];
-extern uint8_t _binary_userspace_cp_elf_start[];
-extern uint8_t _binary_userspace_cp_elf_end[];
-extern uint8_t _binary_userspace_mv_elf_start[];
-extern uint8_t _binary_userspace_mv_elf_end[];
-extern uint8_t _binary_userspace_rm_elf_start[];
-extern uint8_t _binary_userspace_rm_elf_end[];
-extern uint8_t _binary_userspace_touch_elf_start[];
-extern uint8_t _binary_userspace_touch_elf_end[];
-extern uint8_t _binary_userspace_whoami_elf_start[];
-extern uint8_t _binary_userspace_whoami_elf_end[];
-extern uint8_t _binary_userspace_uname_elf_start[];
-extern uint8_t _binary_userspace_uname_elf_end[];
-extern uint8_t _binary_userspace_login_elf_start[];
-extern uint8_t _binary_userspace_login_elf_end[];
-extern uint8_t _binary_userspace_su_elf_start[];
-extern uint8_t _binary_userspace_su_elf_end[];
-extern uint8_t _binary_userspace_chmod_elf_start[];
-extern uint8_t _binary_userspace_chmod_elf_end[];
-extern uint8_t _binary_userspace_chown_elf_start[];
-extern uint8_t _binary_userspace_chown_elf_end[];
-extern uint8_t _binary_userspace_vfs_test_elf_start[];
-extern uint8_t _binary_userspace_vfs_test_elf_end[];
-extern uint8_t _binary_userspace_ipc_test_elf_start[];
-extern uint8_t _binary_userspace_ipc_test_elf_end[];
-extern uint8_t _binary_userspace_proc_test_elf_start[];
-extern uint8_t _binary_userspace_proc_test_elf_end[];
-extern uint8_t _binary_userspace_driver_test_elf_start[];
-extern uint8_t _binary_userspace_driver_test_elf_end[];
-extern uint8_t _binary_userspace_net_test_elf_start[];
-extern uint8_t _binary_userspace_net_test_elf_end[];
-extern uint8_t _binary_userspace_kill_elf_start[];
-extern uint8_t _binary_userspace_kill_elf_end[];
-
-extern uint8_t _binary_userspace_kxtload_elf_start[];
-extern uint8_t _binary_userspace_kxtload_elf_end[];
-extern uint8_t _binary_userspace_kxtunload_elf_start[];
-extern uint8_t _binary_userspace_kxtunload_elf_end[];
-
 extern void syscall_entry(void);
 
 typedef uint64_t (*syscall_fn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
@@ -130,27 +78,6 @@ static uint64_t sys_fork(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
                                   syscall_uregs.r13,
                                   syscall_uregs.r14,
                                   syscall_uregs.r15);
-}
-
-static uint64_t sys_spawn(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
-{
-    (void)a2; (void)a3; (void)a4; (void)a5;
-    uint8_t *start;
-    size_t size;
-    const char *name;
-    if (a1 == 1)
-    {
-        start = _binary_userspace_hello_elf_start;
-        size = (size_t)(_binary_userspace_hello_elf_end - start);
-        name = "hello";
-    }
-    else
-    {
-        start = _binary_userspace_init_elf_start;
-        size = (size_t)(_binary_userspace_init_elf_end - start);
-        name = "spawned";
-    }
-    return (uint64_t)spawn_process(start, size, name);
 }
 
 static uint64_t sys_getpid(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
@@ -785,40 +712,6 @@ void vfs_ensure_proc(void)
     if (t->cwd[0] == 0) { t->cwd[0] = '/'; t->cwd[1] = 0; }
 }
 
-struct spawn_prog {
-    const char *name;
-    uint8_t *start;
-    uint8_t *end;
-};
-
-static const struct spawn_prog spawn_progs[] = {
-    {"init",  _binary_userspace_init_elf_start,  _binary_userspace_init_elf_end},
-    {"hello", _binary_userspace_hello_elf_start, _binary_userspace_hello_elf_end},
-    {"cat",   _binary_userspace_cat_elf_start,   _binary_userspace_cat_elf_end},
-    {"echo",  _binary_userspace_echo_elf_start,  _binary_userspace_echo_elf_end},
-    {"sh",    _binary_userspace_sh_elf_start,    _binary_userspace_sh_elf_end},
-    {"ls",    _binary_userspace_ls_elf_start,    _binary_userspace_ls_elf_end},
-    {"mkdir", _binary_userspace_mkdir_elf_start, _binary_userspace_mkdir_elf_end},
-    {"cp",    _binary_userspace_cp_elf_start,    _binary_userspace_cp_elf_end},
-    {"mv",    _binary_userspace_mv_elf_start,    _binary_userspace_mv_elf_end},
-    {"rm",    _binary_userspace_rm_elf_start,    _binary_userspace_rm_elf_end},
-    {"touch", _binary_userspace_touch_elf_start,  _binary_userspace_touch_elf_end},
-    {"whoami", _binary_userspace_whoami_elf_start, _binary_userspace_whoami_elf_end},
-    {"uname", _binary_userspace_uname_elf_start, _binary_userspace_uname_elf_end},
-    {"login", _binary_userspace_login_elf_start,  _binary_userspace_login_elf_end},
-    {"su", _binary_userspace_su_elf_start,        _binary_userspace_su_elf_end},
-    {"chmod", _binary_userspace_chmod_elf_start,  _binary_userspace_chmod_elf_end},
-    {"chown", _binary_userspace_chown_elf_start,  _binary_userspace_chown_elf_end},
-    {"vfs_test", _binary_userspace_vfs_test_elf_start, _binary_userspace_vfs_test_elf_end},
-    {"ipc_test", _binary_userspace_ipc_test_elf_start, _binary_userspace_ipc_test_elf_end},
-    {"proc_test", _binary_userspace_proc_test_elf_start, _binary_userspace_proc_test_elf_end},
-    {"driver_test", _binary_userspace_driver_test_elf_start, _binary_userspace_driver_test_elf_end},
-    {"net_test", _binary_userspace_net_test_elf_start, _binary_userspace_net_test_elf_end},
-    {"kill", _binary_userspace_kill_elf_start, _binary_userspace_kill_elf_end},
-    {"kxtload", _binary_userspace_kxtload_elf_start, _binary_userspace_kxtload_elf_end},
-    {"kxtunload", _binary_userspace_kxtunload_elf_start, _binary_userspace_kxtunload_elf_end},
-};
-
 static int try_exec_path(const char *path, int argc, char **argv)
 {
     uint8_t *buf = 0;
@@ -896,16 +789,6 @@ static uint64_t sys_spawn_cmd(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4
             return (uint64_t)pid;
     }
 
-    for (size_t i = 0; i < sizeof(spawn_progs) / sizeof(spawn_progs[0]); i++)
-    {
-        if (strcmp(spawn_progs[i].name, argv[0]) == 0)
-        {
-            size_t sz = (size_t)(spawn_progs[i].end - spawn_progs[i].start);
-            int pid = spawn_process_with_args(spawn_progs[i].start, sz,
-                                              spawn_progs[i].name, argc, argv);
-            return (uint64_t)pid;
-        }
-    }
     printk("SPAWN_CMD: unknown program '%s'\n", argv[0]);
     return (uint64_t)(-1);
 }
@@ -1495,7 +1378,6 @@ static syscall_fn syscall_table[] = {
     [SYS_YIELD]  = sys_yield,
     [SYS_EXIT]   = sys_exit,
     [SYS_FORK]   = sys_fork,
-    [SYS_SPAWN]  = sys_spawn,
     [SYS_GETPID] = sys_getpid,
     [SYS_WAITPID] = sys_waitpid,
     [SYS_WRITE]  = sys_write,

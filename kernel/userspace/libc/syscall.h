@@ -9,8 +9,7 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_PRINT   0
 #define SYS_YIELD   1
 #define SYS_EXIT    2
-#define SYS_FORK    3
-#define SYS_SPAWN   4
+#define SYS_FORK   3
 #define SYS_GETPID  5
 #define SYS_WAITPID 6
 #define SYS_WRITE   7
@@ -115,7 +114,6 @@ long driver_rescan(void);
 
 long sys_getpid(void);
 long sys_fork(void);
-long sys_spawn(int which);
 long sys_spawn_cmd(const char *cmdline, size_t len);
 long sys_waitpid(int pid, int *status);
 int sys_ps(void *buf, int max);
