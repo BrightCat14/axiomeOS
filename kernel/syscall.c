@@ -65,6 +65,8 @@ extern uint8_t _binary_userspace_touch_elf_start[];
 extern uint8_t _binary_userspace_touch_elf_end[];
 extern uint8_t _binary_userspace_whoami_elf_start[];
 extern uint8_t _binary_userspace_whoami_elf_end[];
+extern uint8_t _binary_userspace_uname_elf_start[];
+extern uint8_t _binary_userspace_uname_elf_end[];
 extern uint8_t _binary_userspace_login_elf_start[];
 extern uint8_t _binary_userspace_login_elf_end[];
 extern uint8_t _binary_userspace_su_elf_start[];
@@ -802,6 +804,7 @@ static const struct spawn_prog spawn_progs[] = {
     {"rm",    _binary_userspace_rm_elf_start,    _binary_userspace_rm_elf_end},
     {"touch", _binary_userspace_touch_elf_start,  _binary_userspace_touch_elf_end},
     {"whoami", _binary_userspace_whoami_elf_start, _binary_userspace_whoami_elf_end},
+    {"uname", _binary_userspace_uname_elf_start, _binary_userspace_uname_elf_end},
     {"login", _binary_userspace_login_elf_start,  _binary_userspace_login_elf_end},
     {"su", _binary_userspace_su_elf_start,        _binary_userspace_su_elf_end},
     {"chmod", _binary_userspace_chmod_elf_start,  _binary_userspace_chmod_elf_end},

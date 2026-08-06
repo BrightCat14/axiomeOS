@@ -41,6 +41,7 @@ Binaries/mv             0755  0  0  f  bin:kernel/userspace/mv.elf
 Binaries/rm             0755  0  0  f  bin:kernel/userspace/rm.elf
 Binaries/touch          0755  0  0  f  bin:kernel/userspace/touch.elf
 Binaries/whoami         0755  0  0  f  bin:kernel/userspace/whoami.elf
+Binaries/uname          0755  0  0  f  bin:kernel/userspace/uname.elf
 Binaries/login          0755  0  0  f  bin:kernel/userspace/login.elf
 Binaries/su             0755  0  0  f  bin:kernel/userspace/su.elf
 Binaries/chmod          0755  0  0  f  bin:kernel/userspace/chmod.elf
