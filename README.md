@@ -6,6 +6,7 @@ a simple, lightweight operating system
 
 ## Quick Start
 
+* Clone repo: use `git clone --recurse-submodules https://github.com/axiome-os/axiomeOS`
 * Report a bug: Write an issue on GitHub Issues
 * Build the kernel: use `make`
 
