@@ -1,28 +1,8 @@
 #include "framebuffer.h"
 #include "font8x16.h"
-#include "vmm.h"
+#include "arch_mmu.h"
 #include "pmm.h"
 #include <stddef.h>
-
-extern uint64_t pd_table2[512];
-
-static void *map_framebuffer(uintptr_t phys_addr, uintptr_t size)
-{
-    uintptr_t start = phys_addr & ~(uintptr_t)0x1FFFFF;
-    uintptr_t end = phys_addr + size;
-    uintptr_t first_virt = 0;
-
-    for (uintptr_t p = start; p < end; p += 0x200000)
-    {
-        unsigned int idx = (p >> 21) & 0x1FF;
-        pd_table2[idx] = p | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PWT;
-        if (p == start)
-            first_virt = 0x80000000ULL + idx * 0x200000ULL;
-    }
-
-    __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");
-    return (void *)(first_virt + (phys_addr & 0x1FFFFF));
-}
 
 static struct {
     volatile uint8_t *addr;
@@ -73,7 +53,8 @@ void fb_init(uintptr_t addr, uint32_t width, uint32_t height,
 
     if (fb.present)
     {
-        fb.addr = (volatile uint8_t *)map_framebuffer(addr, height * pitch);
+        fb.addr = (volatile uint8_t *)mmu_map_framebuffer(
+            addr, (size_t)height * pitch);
         __builtin_memset((void *)fb.addr, 0, (size_t)height * pitch);
     }
 }

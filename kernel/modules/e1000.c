@@ -46,13 +46,13 @@ static void e1000_init_rings(struct e1000_softc *sc)
     /* Allocate RX ring (page-aligned, physically contiguous). */
     void *rx_phys_page = pmm_alloc_frame();
     if (!rx_phys_page) { printk("E1000: failed to alloc RX ring page\n"); return; }
-    sc->rx_ring = (struct e1000_rx_desc *)vmm_mmap_phys((uint64_t)rx_phys_page, 1, PTE_WRITE);
+    sc->rx_ring = (struct e1000_rx_desc *)vmm_mmap_phys((uint64_t)rx_phys_page, 1, MMU_WRITE);
     memset(sc->rx_ring, 0, PAGE_SIZE);
 
     /* Allocate TX ring. */
     void *tx_phys_page = pmm_alloc_frame();
     if (!tx_phys_page) { printk("E1000: failed to alloc TX ring page\n"); return; }
-    sc->tx_ring = (struct e1000_tx_desc *)vmm_mmap_phys((uint64_t)tx_phys_page, 1, PTE_WRITE);
+    sc->tx_ring = (struct e1000_tx_desc *)vmm_mmap_phys((uint64_t)tx_phys_page, 1, MMU_WRITE);
     memset(sc->tx_ring, 0, PAGE_SIZE);
 
     /* Fill RX ring with mbufs. */
@@ -315,7 +315,7 @@ int e1000_probe(struct pci_device *pdev)
     sc->mmio_size = 0x20000;  /* typical size for e1000 */
 
     sc->mmio = (volatile uint8_t *)vmm_mmap_phys(bar0,
-                (sc->mmio_size + PAGE_SIZE - 1) / PAGE_SIZE, PTE_WRITE);
+                (sc->mmio_size + PAGE_SIZE - 1) / PAGE_SIZE, MMU_WRITE);
     if (!sc->mmio)
     {
         printk("E1000: failed to map BAR0 at 0x%lx\n", bar0);

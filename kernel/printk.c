@@ -4,6 +4,7 @@
 #include "printk.h"
 #include "vfs.h"
 #include "spinlock.h"
+#include "hal/cshim.h"
 
 /* In-memory ring buffer of every byte emitted by the kernel (both printk and
    klog). Serves as the early-boot buffer (before VFS is up) and is replayed to
@@ -225,9 +226,9 @@ void klog_flush(void)
 
 void kernel_panic(const char *msg)
 {
-    __asm__ volatile("cli");
+    hal_cpu_irq_disable();
     printk("\n*** KERNEL PANIC ***\n%s\n", msg ? msg : "(no message)");
     klog("\n*** KERNEL PANIC ***\n%s\n", msg ? msg : "(no message)");
     for (;;)
-        __asm__ volatile("hlt");
+        hal_cpu_halt();
 }

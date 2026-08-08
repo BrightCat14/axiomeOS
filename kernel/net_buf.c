@@ -25,7 +25,7 @@ void mbuf_init(void)
         struct mbuf *m = &g_mbuf_pool[i];
         void *page = pmm_alloc_frame();
         if (!page) continue;
-        m->data = (uint8_t *)vmm_mmap_phys((uint64_t)page, 1, PTE_WRITE);
+        m->data = (uint8_t *)vmm_mmap_phys((uint64_t)page, 1, MMU_WRITE);
         m->phys = (uint64_t)page;
         m->len = 0;
         m->data_off = 0;

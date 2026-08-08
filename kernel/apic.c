@@ -1,7 +1,6 @@
 #include "apic.h"
 #include "printk.h"
-#include "pmm.h"
-#include "vmm.h"
+#include "hal/cshim.h"
 
 #define IA32_APIC_BASE_MSR 0x1B
 #define APIC_DEFAULT_BASE 0xFEE00000ULL
@@ -19,8 +18,6 @@
 
 static volatile uint32_t *apic_base;
 static volatile uint64_t timer_ticks;
-
-extern uint64_t pd_table3[512];
 
 static uint64_t rdmsr(uint32_t msr)
 {
@@ -52,6 +49,14 @@ void apic_timer_tick(void)
     timer_ticks++;
 }
 
+/* Start the periodic local APIC timer with the given init count. */
+void apic_timer_start(uint32_t count)
+{
+    apic_write(APIC_OFFSET_TIMER_DIV, APIC_TIMER_DIV16);
+    apic_write(APIC_OFFSET_LVT_TIMER, 0x20 | APIC_LVT_PERIODIC);
+    apic_write(APIC_OFFSET_TIMER_INIT, count);
+}
+
 void apic_init(void)
 {
     timer_ticks = 0;
@@ -62,11 +67,7 @@ void apic_init(void)
     if (apic_phys == 0)
         apic_phys = APIC_DEFAULT_BASE;
 
-    unsigned int pd_idx = (apic_phys >> 21) & 0x1FF;
-    pd_table3[pd_idx] = apic_phys | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
-    __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");
-
-    apic_base = (volatile uint32_t *)apic_phys;
+    apic_base = (volatile uint32_t *)hal_mmio_map_phys(apic_phys, 0x1000);
 
     uint64_t apic_msr = rdmsr(IA32_APIC_BASE_MSR);
     apic_msr |= (1ULL << 11);
@@ -77,10 +78,6 @@ void apic_init(void)
 
     __asm__ volatile("outb %0, %1" : : "a"((uint8_t)0xFF), "d"((uint16_t)0xA1));
     __asm__ volatile("outb %0, %1" : : "a"((uint8_t)0xFF), "d"((uint16_t)0x21));
-
-    apic_write(APIC_OFFSET_TIMER_DIV, APIC_TIMER_DIV16);
-    apic_write(APIC_OFFSET_LVT_TIMER, 0x20 | APIC_LVT_PERIODIC);
-    apic_write(APIC_OFFSET_TIMER_INIT, 0x10000);
 
     printk("APIC: timer started\n");
 }

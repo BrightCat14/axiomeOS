@@ -4,6 +4,7 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "string.h"
+#include "hal/cshim.h"
 
 void context_switch(uint64_t *old_rsp, uint64_t new_rsp, uint64_t new_kstack_top);
 extern void user_iret_stub(void);
@@ -88,7 +89,7 @@ static void idle_func(void *arg)
     (void)arg;
     while (1)
     {
-        __asm__ volatile("hlt");
+        hal_cpu_halt();
         sched_yield();
     }
 }
@@ -105,7 +106,7 @@ void sched_init(void)
     current->prev = current;
     current->stack_base = 0;
     current->kstack_top = (uint64_t)&bootstrap_stack_top;
-    current->pml4 = vmm_kernel_pml4();
+    current->mmu = vmm_kernel_root();
     current->pid = sched_new_pid();
     current->parent_pid = 0;
     current->exit_status = 0;
@@ -123,7 +124,7 @@ void sched_init(void)
     idle_thread.next = 0;
     idle_thread.prev = 0;
     idle_thread.stack_base = 0;
-    idle_thread.pml4 = vmm_kernel_pml4();
+    idle_thread.mmu = vmm_kernel_root();
     idle_thread.pid = sched_new_pid();
     idle_thread.parent_pid = 0;
     idle_thread.exit_status = 0;
@@ -165,7 +166,7 @@ struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name)
     t->arg = arg;
     t->stack_base = stack;
     t->kstack_top = (uint64_t)stack + THREAD_STACK_SIZE;
-    t->pml4 = vmm_kernel_pml4();
+    t->mmu = vmm_kernel_root();
     t->pid = sched_new_pid();
     t->parent_pid = 0;
     t->exit_status = 0;
@@ -193,7 +194,7 @@ struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name)
     return t;
 }
 
-struct thread *sched_spawn_user_in(uint64_t *pml4, void *rip, void *user_rsp,
+struct thread *sched_spawn_user_in(struct mmu_root *mmu, void *rip, void *user_rsp,
                          uint64_t rflags, const char *name,
                          uint64_t rbx, uint64_t rbp, uint64_t r12,
                          uint64_t r13, uint64_t r14, uint64_t r15)
@@ -243,7 +244,7 @@ struct thread *sched_spawn_user_in(uint64_t *pml4, void *rip, void *user_rsp,
     t->arg = 0;
     t->stack_base = stack;
     t->kstack_top = (uint64_t)stack + THREAD_STACK_SIZE;
-    t->pml4 = pml4;
+    t->mmu = mmu;
     t->pid = sched_new_pid();
     t->parent_pid = (current ? current->pid : 0);
     t->exit_status = 0;
@@ -304,8 +305,8 @@ static void reap_zombies(void)
                 pmm_free_frames(z->stack_base, stack_frames);
                 z->stack_base = 0;
             }
-            vmm_free_pml4(z->pml4);
-            z->pml4 = 0;
+            vmm_free_root(z->mmu);
+            z->mmu = 0;
             kfree(z);
             if (prev)
                 prev->next = nxt;
@@ -343,7 +344,7 @@ void sched_yield(void)
     current->state = THREAD_RUNNING;
     current->quantum = THREAD_QUANTUM;
 
-    vmm_switch(current->pml4);
+    vmm_switch(current->mmu);
     context_switch(&old->rsp, current->rsp, current->kstack_top);
 }
 
@@ -387,7 +388,7 @@ void sched_exit(int status)
     current->state = THREAD_RUNNING;
     current->quantum = THREAD_QUANTUM;
 
-    vmm_switch(current->pml4);
+    vmm_switch(current->mmu);
     context_switch(&self->rsp, current->rsp, current->kstack_top);
 }
 
@@ -491,7 +492,7 @@ void sched_suspend(void)
 {
     if (!ready_head)
     {
-        __asm__ volatile("hlt");
+        hal_cpu_halt();
         return;
     }
 
@@ -509,7 +510,7 @@ void sched_suspend(void)
     current->state = THREAD_RUNNING;
     current->quantum = THREAD_QUANTUM;
 
-    vmm_switch(current->pml4);
+    vmm_switch(current->mmu);
     context_switch(&old->rsp, current->rsp, current->kstack_top);
 }
 
@@ -579,8 +580,8 @@ void sched_reap_zombie(struct thread *z)
         pmm_free_frames(z->stack_base, stack_frames);
         z->stack_base = 0;
     }
-    vmm_free_pml4(z->pml4);
-    z->pml4 = 0;
+    vmm_free_root(z->mmu);
+    z->mmu = 0;
     kfree(z);
 }
 

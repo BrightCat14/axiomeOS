@@ -98,7 +98,7 @@
 #define NVME_BOUNCE_BYTES (NVME_BOUNCE_PAGES * PAGE_SIZE)
 
 /* Page-table bits used to mark the MMIO BAR uncacheable (UC). */
-#define NVME_PTE_UC (PTE_WRITE | PTE_PWT | PTE_PCD)
+#define NVME_PTE_UC (MMU_WRITE | MMU_UNCACHED)
 
 /* ---- Data structures (see OSDev "Data structures") ---- */
 

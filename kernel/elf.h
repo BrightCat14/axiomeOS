@@ -49,7 +49,9 @@ struct elf64_phdr {
     uint64_t p_align;
 };
 
-int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
+struct mmu_root;
+
+int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
               uint64_t *entry, uint64_t *stack_top, int argc, char **argv);
 
 int exec_user_program(const uint8_t *elf, size_t size, const char *name);
