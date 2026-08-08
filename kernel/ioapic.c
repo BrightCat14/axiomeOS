@@ -1,9 +1,7 @@
 #include "ioapic.h"
 #include "printk.h"
-#include "vmm.h"
 #include "acpi.h"
-
-extern uint64_t pd_table3[512];
+#include "hal/cshim.h"
 
 struct ioapic_regs {
     volatile uint32_t *base;
@@ -43,9 +41,7 @@ static int ioapic_for_gsi(unsigned int gsi, volatile uint32_t **base_out, int *p
 
 static void map_ioapic_mmio(uint64_t phys)
 {
-    unsigned int pd_idx = (phys >> 21) & 0x1FF;
-    pd_table3[pd_idx] = phys | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
-    __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax");
+    hal_mmio_map_phys(phys, 0x1000);
 }
 
 void ioapic_set_entry(unsigned int gsi, uint8_t vector, uint8_t dest,

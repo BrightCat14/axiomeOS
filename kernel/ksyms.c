@@ -9,6 +9,7 @@
 #include "net_buf.h"
 #include "driver.h"
 #include "ioapic.h"
+#include "hal/cshim.h"
 
 /* ===========================================================================
  * Exported kernel symbols available to .kxt modules.
@@ -36,6 +37,11 @@ KSYM(pmm_free_frames);
 KSYM(vmm_mmap_phys);
 KSYM(vmm_unmap_page);
 KSYM(vmm_map_page);
+
+/* HAL CPU control (used by shared spinlock.h in modules). */
+KSYM(hal_cpu_save_irq);
+KSYM(hal_cpu_restore_irq);
+KSYM(hal_cpu_pause);
 
 /* PCI bus access. */
 KSYM(pci_read32);

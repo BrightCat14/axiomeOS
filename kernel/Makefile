@@ -2,6 +2,7 @@ REPO_ROOT := $(realpath ..)
 BUILD_DIR := $(REPO_ROOT)/build/kernel
 
 CC      := $(HOME)/opt/cross/bin/x86_64-elf-gcc
+CXX     := $(HOME)/opt/cross/bin/x86_64-elf-g++
 AS      := $(HOME)/opt/cross/bin/x86_64-elf-as
 LD      := $(HOME)/opt/cross/bin/x86_64-elf-ld
 
@@ -9,15 +10,23 @@ CFLAGS  = -ffreestanding -nostdlib -nostartfiles
 CFLAGS += -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2
 CFLAGS += -O2 -g -pipe
 CFLAGS += -Wall -Wextra -Wpedantic
-CFLAGS += -I$(REPO_ROOT)
+CFLAGS += -I$(REPO_ROOT) -I$(REPO_ROOT)/kernel
 CFLAGS += -DGIT_COMMIT=\"$(shell git rev-parse --short HEAD)\"
 CFLAGS += -DBUILD_TIME=\"$(shell date +%s)\"
+
+# C++ is used for the hardware abstraction layer. Exceptions/RTTI and the
+# standard library are unavailable in the kernel; placement new into static
+# storage means no .init_array support is required.
+CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti -fno-threadsafe-statics
+CXXFLAGS += -fno-use-cxa-atexit -fno-unwind-tables -fno-asynchronous-unwind-tables
 
 LDFLAGS = -nostdlib -T $(REPO_ROOT)/linker.ld
 
 C_SRCS := $(wildcard *.c) $(wildcard arch/x86_64/*.c)
+CXX_SRCS := $(wildcard hal/*.cpp) $(wildcard arch/x86_64/hal/*.cpp)
 ASM_SRCS := $(wildcard arch/x86_64/*.S)
 C_OBJS := $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SRCS))
+CXX_OBJS := $(patsubst %.cpp, $(BUILD_DIR)/%.o, $(CXX_SRCS))
 ASM_OBJS := $(patsubst %.S, $(BUILD_DIR)/%.o, $(ASM_SRCS))
 
 # Userspace programs. They are built into the source tree as .elf and shipped
@@ -47,13 +56,17 @@ all: $(BUILD_DIR)/kernel.elf modules $(USER_ELFS)
 modules:
 	$(MAKE) -C modules
 
-$(BUILD_DIR)/kernel.elf: $(C_OBJS) $(ASM_OBJS)
+$(BUILD_DIR)/kernel.elf: $(C_OBJS) $(CXX_OBJS) $(ASM_OBJS)
 	@mkdir -p $(@D)
 	$(LD) $(LDFLAGS) -o $@ $^ -z max-page-size=0x1000
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/%.o: %.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(@D)

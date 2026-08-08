@@ -6,6 +6,9 @@
 #include "signal.h"
 #include "security.h"
 
+/* Opaque address-space handle (defined by the arch MMU). */
+struct mmu_root;
+
 #define THREAD_QUANTUM 10
 #define THREAD_STACK_SIZE 32768
 #define IPC_MAX 16
@@ -15,7 +18,7 @@ enum { THREAD_READY, THREAD_RUNNING, THREAD_BLOCKED, THREAD_ZOMBIE };
 struct thread {
     uint64_t rsp;
     uint64_t kstack_top;
-    uint64_t *pml4;
+    struct mmu_root *mmu;
     uint64_t user_rsp;
     int pid;
     int parent_pid;
@@ -64,7 +67,7 @@ void kernel_respawn_init(void);
 int sched_protected_kill(struct thread *victim, struct thread *killer);
 int sched_is_protected(struct thread *t);
 struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name);
-struct thread *sched_spawn_user_in(uint64_t *pml4, void *rip, void *user_rsp,
+struct thread *sched_spawn_user_in(struct mmu_root *mmu, void *rip, void *user_rsp,
                          uint64_t rflags, const char *name,
                          uint64_t rbx, uint64_t rbp, uint64_t r12,
                          uint64_t r13, uint64_t r14, uint64_t r15);

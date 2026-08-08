@@ -9,11 +9,14 @@
 | Domain | Language | Standard |
 |--------|----------|----------|
 | Kernel | C + assembly | C11 (gnu11), Intel assembly syntax |
+| Kernel HAL | C++ | C++17 (freestanding, no exceptions/RTTI/libstdc++) |
 | Libc | C | C11 (freestanding) |
 | Userland | C | C11 (hosted, using libc headers) |
 | Build | Make / bash | GNU Make 4.x, bash 5.x |
 
-No C++ allowed in the kernel. C only.
+No C++ allowed in the kernel — **except** the Hardware Abstraction Layer
+under `kernel/hal/` and `kernel/arch/<arch>/hal/` (see `docs/hal.md`). The HAL
+is the single intentional C++ island; everything else stays C.
 
 ---
 
