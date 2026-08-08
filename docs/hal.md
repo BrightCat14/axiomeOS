@@ -176,11 +176,3 @@ EOI ordering of the old hardcoded dispatch.
 | CPU control | `hlt`/`sti`/`cli`/CR2 inline asm | `hal_cpu_*()` (`X86Cpu`) |
 | Boot environment | multiboot2 structs only | also mirrors into `hal_bootinfo` |
 
-## 7. Notes & limitations
-
-- `kernel/arch/x86_64/{apic,ioapic,idt,tss}.c` remain arch glue — the HAL
-  wraps them rather than replacing them.
-- Exceptions (vector 0..31) are still handled in `kernel/isr_handlers.c`;
-  only device interrupts flow through the HAL.
-- PMM/VMM are not behind the HAL yet; `hal_mmio_map_phys()` covers the MMIO
-  case drivers need.
