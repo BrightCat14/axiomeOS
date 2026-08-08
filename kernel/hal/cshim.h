@@ -33,8 +33,11 @@ void     hal_port_delay(void);
 /* ---- CPU control ---- */
 
 void     hal_cpu_halt(void);
+void     hal_cpu_pause(void);
 void     hal_cpu_irq_enable(void);
 void     hal_cpu_irq_disable(void);
+unsigned long hal_cpu_save_irq(void);
+void     hal_cpu_restore_irq(unsigned long flags);
 uint64_t hal_cpu_fault_address(void);
 void     hal_cpu_tlb_flush(void);
 void     hal_cpu_memory_barrier(void);

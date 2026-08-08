@@ -124,7 +124,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
         uint64_t phys = (uint64_t)pmm_alloc_frame();
         if (phys)
         {
-            void *mapped = vmm_mmap_phys(phys, 1, PTE_WRITE);
+            void *mapped = vmm_mmap_phys(phys, 1, MMU_WRITE);
             printk("VMM: mapped phys 0x%lx -> virt %p\n", phys, mapped);
             if (mapped)
             {
@@ -139,7 +139,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
         uint64_t dp_page = (uint64_t)pmm_alloc_frame();
         if (dp_page)
         {
-            if (vmm_map_page(demand_virt, dp_page, PTE_WRITE) == 0)
+            if (vmm_map_page(demand_virt, dp_page, MMU_WRITE) == 0)
             {
                 *(volatile char *)demand_virt = 'D';
                 uint64_t mapped = vmm_virt_to_phys(demand_virt);

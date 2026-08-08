@@ -47,14 +47,14 @@ void isr_handler(struct isr_frame *frame)
             uint64_t page = (uint64_t)pmm_alloc_frame();
             if (page)
             {
-                uint64_t flags = PTE_WRITE;
+                uint32_t flags = MMU_WRITE;
                 if (user)
-                    flags |= PTE_USER;
+                    flags |= MMU_USER;
                 if (!user || cr2 >= USERSPACE_BASE)
                 {
                     struct thread *cur = sched_current();
-                    uint64_t *pml4 = cur ? cur->pml4 : vmm_kernel_pml4();
-                    if (vmm_map_page_in(pml4, cr2 & ~0xFFF, page, flags) == 0)
+                    struct mmu_root *root = cur ? cur->mmu : vmm_kernel_root();
+                    if (vmm_map_page_in(root, cr2 & ~0xFFF, page, flags) == 0)
                         return;
                 }
                 pmm_free_frame((void*)page);

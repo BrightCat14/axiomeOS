@@ -1,5 +1,5 @@
 #include "x86_hal.h"
-#include "../../../vmm.h"
+#include "../mmu.h"
 
 extern uint64_t pd_table3[512];
 
@@ -17,7 +17,8 @@ public:
     {
         (void)size;
         unsigned int pd_idx = (unsigned int)((phys >> 21) & 0x1FF);
-        pd_table3[pd_idx] = phys | PTE_PRESENT | PTE_WRITE | PTE_HUGE | PTE_PCD | PTE_PWT;
+        pd_table3[pd_idx] = phys | X86_PTE_PRESENT | X86_PTE_WRITE |
+                            X86_PTE_HUGE | X86_PTE_PCD | X86_PTE_PWT;
         cpu().tlb_flush();
         return (void *)(uintptr_t)phys;
     }

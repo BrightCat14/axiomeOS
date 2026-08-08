@@ -55,8 +55,11 @@ extern "C" void hal_port_delay(void) { hal::port_io().delay(); }
 /* ---- CPU control ---- */
 
 extern "C" void hal_cpu_halt(void) { hal::cpu().halt(); }
+extern "C" void hal_cpu_pause(void) { hal::cpu().pause(); }
 extern "C" void hal_cpu_irq_enable(void) { hal::cpu().irq_enable(); }
 extern "C" void hal_cpu_irq_disable(void) { hal::cpu().irq_disable(); }
+extern "C" unsigned long hal_cpu_save_irq(void) { return hal::cpu().save_and_disable_irqs(); }
+extern "C" void hal_cpu_restore_irq(unsigned long flags) { hal::cpu().restore_irqs(flags); }
 extern "C" uint64_t hal_cpu_fault_address(void) { return hal::cpu().fault_address(); }
 extern "C" void hal_cpu_tlb_flush(void) { hal::cpu().tlb_flush(); }
 extern "C" void hal_cpu_memory_barrier(void) { hal::cpu().memory_barrier(); }

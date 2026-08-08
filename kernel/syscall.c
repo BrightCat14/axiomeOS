@@ -1366,8 +1366,8 @@ static uint64_t sys_shm_attach(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a
     uint64_t phys = (uint64_t)g_shm[s].phys;
     for (uint64_t p = 0; p < g_shm[s].pages; p++)
     {
-        if (vmm_map_page_in(t->pml4, va + p * PAGE_SIZE, phys + p * PAGE_SIZE,
-                             PTE_USER | PTE_WRITE) < 0)
+        if (vmm_map_page_in(t->mmu, va + p * PAGE_SIZE, phys + p * PAGE_SIZE,
+                             MMU_USER | MMU_WRITE) < 0)
             return (uint64_t)(-1);
     }
     return va;

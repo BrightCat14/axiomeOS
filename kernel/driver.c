@@ -2,7 +2,6 @@
 #include "slab.h"
 #include "printk.h"
 #include "string.h"
-#include "io.h"
 #include "ide.h"
 #include "serial.h"
 #include "framebuffer.h"
@@ -124,16 +123,16 @@ static long zero_write(struct device *d, uint64_t off, const void *buf, size_t l
     return (long)len;
 }
 
-#define COM1 0x3F8
+/* ttyS0: the platform serial console through the HAL serial API. */
 static long tty_read(struct device *d, uint64_t off, void *buf, size_t len)
 {
     (void)d; (void)off;
     size_t got = 0;
     while (got < len)
     {
-        if (!(inb(COM1 + 5) & 0x01))
+        if (!serial_rx_ready(COM1))
             break;
-        ((char *)buf)[got++] = (char)inb(COM1);
+        ((char *)buf)[got++] = serial_getc(COM1);
     }
     return (long)got;
 }
@@ -143,8 +142,8 @@ static long tty_write(struct device *d, uint64_t off, const void *buf, size_t le
     for (size_t i = 0; i < len; i++)
     {
         char c = ((const char *)buf)[i];
-        if (c == '\n') outb(COM1, '\r');
-        outb(COM1, (uint8_t)c);
+        if (c == '\n') serial_putchar(COM1, '\r');
+        serial_putchar(COM1, c);
     }
     return (long)len;
 }
@@ -251,7 +250,7 @@ static long fb_mmap(struct device *d, uint64_t off, uint64_t virt, size_t len, u
     if (!fb_active())
         return -1;
     struct thread *t = sched_current();
-    if (!t || !t->pml4)
+    if (!t || !t->mmu)
         return -1;
     size_t pages = (len + PAGE_SIZE - 1) >> PAGE_SHIFT;
     for (size_t i = 0; i < pages; i++)
@@ -260,8 +259,8 @@ static long fb_mmap(struct device *d, uint64_t off, uint64_t virt, size_t len, u
         uint64_t pa = vmm_virt_to_phys(va);
         if (!pa)
             return -1;
-        if (vmm_map_page_in(t->pml4, virt + i * PAGE_SIZE, pa,
-                             PTE_USER | PTE_WRITE) < 0)
+        if (vmm_map_page_in(t->mmu, virt + i * PAGE_SIZE, pa,
+                             MMU_USER | MMU_WRITE) < 0)
             return -1;
     }
     return 0;

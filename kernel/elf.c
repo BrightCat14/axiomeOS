@@ -23,7 +23,7 @@ static int elf_valid(const struct elf64_ehdr *h)
     return 1;
 }
 
-int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
+int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
               uint64_t *entry, uint64_t *stack_top, int argc, char **argv)
 {
     if (size < sizeof(struct elf64_ehdr))
@@ -36,12 +36,11 @@ int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
         return -1;
     }
 
-    /* The new pml4 owns these user mappings, but it is not yet the active
-       page table. Switch CR3 so writes to the user virtual addresses land
-       in the correct frames. */
-    uint64_t saved_cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(saved_cr3));
-    vmm_switch(pml4);
+    /* The new address space owns these user mappings, but it is not yet the
+       active page table. Switch to it so writes to the user virtual addresses
+       land in the correct frames. */
+    struct mmu_root *saved = vmm_current_root();
+    vmm_switch(mmu);
 
     uint64_t highest = 0;
     const struct elf64_phdr *ph = (const struct elf64_phdr *)(data + h->e_phoff);
@@ -56,9 +55,9 @@ int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
         uint64_t memsz  = ph[i].p_memsz;
         uint64_t offset = ph[i].p_offset;
 
-        uint64_t flags = PTE_USER | PTE_WRITE;
+        uint32_t flags = MMU_USER | MMU_WRITE;
         if (!(ph[i].p_flags & PF_X))
-            flags |= PTE_NX;
+            flags |= MMU_NX;
 
         uint64_t vstart = vaddr & ~0xFFFULL;
         uint64_t vend   = (vaddr + memsz + 0xFFFULL) & ~0xFFFULL;
@@ -73,7 +72,7 @@ int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
                 printk("ELF: OOM mapping 0x%lx\n", va);
                 return -1;
             }
-            if (vmm_map_page_in(pml4, va, phys, flags) < 0)
+            if (vmm_map_page_in(mmu, va, phys, flags) < 0)
             {
                 pmm_free_frame((void *)phys);
                 printk("ELF: map failed 0x%lx\n", va);
@@ -120,7 +119,7 @@ int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
             printk("ELF: OOM stack\n");
             return -1;
         }
-        if (vmm_map_page_in(pml4, va, phys, PTE_USER | PTE_WRITE) < 0)
+        if (vmm_map_page_in(mmu, va, phys, MMU_USER | MMU_WRITE) < 0)
         {
             pmm_free_frame((void *)phys);
             return -1;
@@ -132,7 +131,7 @@ int elf_load(uint64_t *pml4, const uint8_t *data, size_t size,
 
     *stack_top = stack_top_ptr;
 
-    vmm_switch((uint64_t *)(saved_cr3 & ~0xFFFULL));
+    vmm_switch(saved);
     return 0;
 }
 
@@ -184,24 +183,24 @@ static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
 
 int exec_user_program(const uint8_t *elf, size_t size, const char *name)
 {
-    uint64_t *pml4 = vmm_new_user_pml4();
-    if (!pml4)
+    struct mmu_root *mmu = vmm_new_user_root();
+    if (!mmu)
     {
-        printk("EXEC: no pml4 for '%s'\n", name);
+        printk("EXEC: no address space for '%s'\n", name);
         return -1;
     }
     char *av[1];
     av[0] = (char *)name;
     uint64_t entry, stack_top;
-    if (elf_load(pml4, elf, size, &entry, &stack_top, 1, av) < 0)
+    if (elf_load(mmu, elf, size, &entry, &stack_top, 1, av) < 0)
     {
         printk("EXEC: failed to load ELF '%s'\n", name);
-        vmm_free_pml4(pml4);
+        vmm_free_root(mmu);
         return -1;
     }
     printk("EXEC: loaded '%s' entry=0x%lx stack=0x%lx\n",
             name, entry, stack_top);
-    struct thread *t = sched_spawn_user_in(pml4, (void *)entry, (void *)stack_top,
+    struct thread *t = sched_spawn_user_in(mmu, (void *)entry, (void *)stack_top,
                                            0x202, name, 0, 0, 0, 0, 0, 0);
     if (t)
         sched_mark_init(t);
@@ -211,16 +210,16 @@ int exec_user_program(const uint8_t *elf, size_t size, const char *name)
 int spawn_process_with_args(const uint8_t *elf, size_t size, const char *name,
                             int argc, char **argv)
 {
-    uint64_t *pml4 = vmm_new_user_pml4();
-    if (!pml4)
+    struct mmu_root *mmu = vmm_new_user_root();
+    if (!mmu)
         return -1;
     uint64_t entry, stack_top;
-    if (elf_load(pml4, elf, size, &entry, &stack_top, argc, argv) < 0)
+    if (elf_load(mmu, elf, size, &entry, &stack_top, argc, argv) < 0)
     {
-        vmm_free_pml4(pml4);
+        vmm_free_root(mmu);
         return -1;
     }
-    struct thread *t = sched_spawn_user_in(pml4, (void *)entry, (void *)stack_top, 0x202,
+    struct thread *t = sched_spawn_user_in(mmu, (void *)entry, (void *)stack_top, 0x202,
                                             name, 0, 0, 0, 0, 0, 0);
     return t ? (int)t->pid : -1;
 }
@@ -232,10 +231,10 @@ int fork_process(uint64_t rip, uint64_t rsp, uint64_t rflags,
     struct thread *cur = sched_current();
     if (!cur)
         return -1;
-    uint64_t *pml4 = vmm_clone_pml4(cur->pml4);
-    if (!pml4)
+    struct mmu_root *mmu = vmm_clone_root(cur->mmu);
+    if (!mmu)
         return -1;
-    struct thread *t = sched_spawn_user_in(pml4, (void *)(uintptr_t)rip,
+    struct thread *t = sched_spawn_user_in(mmu, (void *)(uintptr_t)rip,
                                             (void *)(uintptr_t)rsp, rflags, cur->name,
                                             rbx, rbp, r12, r13, r14, r15);
     if (t)

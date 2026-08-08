@@ -50,7 +50,7 @@ static void slab_grow(int idx)
     /* Map the page into the kernel high-half. Using the raw physical
        address as a virtual address collides with identity-mapped kernel
        thread stacks (low physical frames), corrupting the slab free list. */
-    void *vpage = vmm_mmap_phys(phys, 1, PTE_PRESENT | PTE_WRITE);
+    void *vpage = vmm_mmap_phys(phys, 1, MMU_WRITE);
     if (!vpage)
     {
         pmm_free_frame((void *)(uintptr_t)phys);
@@ -106,7 +106,7 @@ void *kmalloc(size_t size)
         uint64_t phys = (uint64_t)pmm_alloc_frames(npages);
         if (!phys)
             return 0;
-        void *v = vmm_mmap_phys(phys, npages, PTE_PRESENT | PTE_WRITE);
+        void *v = vmm_mmap_phys(phys, npages, MMU_WRITE);
         if (!v)
         {
             pmm_free_frames((void *)(uintptr_t)phys, npages);

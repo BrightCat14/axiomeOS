@@ -37,3 +37,13 @@ void serial_write(int port, const char *s)
 {
     hal_serial_write((uintptr_t)port, s);
 }
+
+int serial_rx_ready(int port)
+{
+    return hal_serial_rx_ready((uintptr_t)port);
+}
+
+char serial_getc(int port)
+{
+    return hal_serial_getc((uintptr_t)port);
+}

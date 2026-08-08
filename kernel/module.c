@@ -231,7 +231,7 @@ int module_load(const uint8_t *elf, size_t size, const char *name)
         }
         pages[p] = (uint64_t)(uintptr_t)phys;
         if (vmm_map_page(base + p * PAGE_SIZE, (uint64_t)(uintptr_t)phys,
-                         PTE_WRITE) < 0)
+                         MMU_WRITE) < 0)
         {
             printk("KXT: vmm_map_page failed\n");
             for (uint64_t q = 0; q <= p; q++)

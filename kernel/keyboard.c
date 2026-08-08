@@ -1,6 +1,7 @@
 #include "keyboard.h"
 #include "printk.h"
 #include "tty.h"
+#include "io.h"
 #include "hal/cshim.h"
 
 #define KEYBOARD_IRQ 1
@@ -35,18 +36,6 @@ static const char scancode_ansi[128] = {
     [0x37] = '*', [0x39] = ' ',
     [0x4A] = '-', [0x4E] = '+',
 };
-
-static inline uint8_t inb(uint16_t port)
-{
-    uint8_t val;
-    __asm__ volatile("inb %1, %0" : "=a"(val) : "d"(port));
-    return val;
-}
-
-static inline void outb(uint16_t port, uint8_t val)
-{
-    __asm__ volatile("outb %0, %1" : : "a"(val), "d"(port));
-}
 
 /* Escape sequence state machine */
 #define ESC_STATE_IDLE  0

@@ -11,5 +11,7 @@ void serial_init_input(void);
 void serial_irq_handler(void);
 void serial_putchar(int port, char c);
 void serial_write(int port, const char *s);
+int serial_rx_ready(int port);
+char serial_getc(int port);
 
 #endif

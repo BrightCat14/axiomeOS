@@ -13,6 +13,11 @@ public:
         __asm__ volatile("hlt");
     }
 
+    void pause(void) override
+    {
+        __asm__ volatile("pause");
+    }
+
     void irq_enable(void) override
     {
         __asm__ volatile("sti");
@@ -21,6 +26,18 @@ public:
     void irq_disable(void) override
     {
         __asm__ volatile("cli");
+    }
+
+    unsigned long save_and_disable_irqs(void) override
+    {
+        unsigned long flags;
+        __asm__ volatile("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+        return flags;
+    }
+
+    void restore_irqs(unsigned long flags) override
+    {
+        __asm__ volatile("pushq %0; popfq" : : "r"(flags) : "cc", "memory");
     }
 
     uint64_t fault_address(void) override

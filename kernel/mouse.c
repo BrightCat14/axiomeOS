@@ -1,6 +1,7 @@
 #include "mouse.h"
 #include "printk.h"
 #include "softirq.h"
+#include "io.h"
 #include "hal/cshim.h"
 
 #define MOUSE_IRQ 12
@@ -22,18 +23,6 @@ static struct mouse_event evbuf[MOUSE_EVENT_BUF];
 static volatile int evhead, evtail;
 static uint8_t mouse_cycle;
 static uint8_t mouse_packet[3];
-
-static inline uint8_t inb(uint16_t port)
-{
-    uint8_t val;
-    __asm__ volatile("inb %1, %0" : "=a"(val) : "d"(port));
-    return val;
-}
-
-static inline void outb(uint16_t port, uint8_t val)
-{
-    __asm__ volatile("outb %0, %1" : : "a"(val), "d"(port));
-}
 
 static inline void wait_write(void)
 {
