@@ -4,6 +4,7 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "string.h"
+#include "hal/cshim.h"
 
 void context_switch(uint64_t *old_rsp, uint64_t new_rsp, uint64_t new_kstack_top);
 extern void user_iret_stub(void);
@@ -88,7 +89,7 @@ static void idle_func(void *arg)
     (void)arg;
     while (1)
     {
-        __asm__ volatile("hlt");
+        hal_cpu_halt();
         sched_yield();
     }
 }
@@ -491,7 +492,7 @@ void sched_suspend(void)
 {
     if (!ready_head)
     {
-        __asm__ volatile("hlt");
+        hal_cpu_halt();
         return;
     }
 

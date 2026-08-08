@@ -1,7 +1,7 @@
 #include "mouse.h"
 #include "printk.h"
-#include "ioapic.h"
 #include "softirq.h"
+#include "hal/cshim.h"
 
 #define MOUSE_IRQ 12
 
@@ -123,7 +123,7 @@ void mouse_init(void)
         return;
     }
 
-    ioapic_mask(MOUSE_IRQ, 0);
+    hal_irq_mask(MOUSE_IRQ, 0);
     printk("Mouse: ready\n");
 }
 

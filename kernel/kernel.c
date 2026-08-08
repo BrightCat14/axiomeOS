@@ -30,6 +30,8 @@
 #include "module.h"
 #include "acpi.h"
 #include "mmap.h"
+#include "hal/cshim.h"
+#include "hal/hal_bootinfo.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -60,6 +62,7 @@ void kernel_respawn_init(void)
 
 void kmain(unsigned long magic, unsigned long mb2_info_addr)
 {
+    hal_init();
     serial_init(COM1);
 
     printk("axiomeOS booting...\n");
@@ -71,7 +74,11 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     fb_init_buffers();
     acpi_init(acpi_rsdp_addr);
 
-    if (fb_active())
+    /* Boot environment as seen through the HAL (filled by the boot glue,
+       e.g. mb2.c). */
+    struct hal_bootinfo *bi = hal_bootinfo();
+
+    if (bi->framebuffer_present)
     {
         fb_clear();
         fb_write("Hello, axiomeOS!\n");
@@ -147,7 +154,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     tss_init();
     isr_init();
-    apic_init();
+    hal_timer_start(0x10000);
     ioapic_init();
     keyboard_init();
     tty_init();
@@ -195,7 +202,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     uint64_t yield_count = 0;
     printk("APIC: tick");
-    __asm__ volatile("sti");
+    hal_cpu_irq_enable();
 
     klog_flush();
 
@@ -226,6 +233,6 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
             sched_yield();
         }
 
-        __asm__ volatile("hlt");
+        hal_cpu_halt();
     }
 }

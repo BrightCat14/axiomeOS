@@ -1,7 +1,7 @@
 #include "keyboard.h"
 #include "printk.h"
-#include "ioapic.h"
 #include "tty.h"
+#include "hal/cshim.h"
 
 #define KEYBOARD_IRQ 1
 
@@ -184,6 +184,6 @@ void keyboard_init(void)
     if (inb(0x64) & 1)
         inb(0x60);
 
-    ioapic_mask(KEYBOARD_IRQ, 0);
+    hal_irq_mask(KEYBOARD_IRQ, 0);
     printk("Keyboard: ready\n");
 }

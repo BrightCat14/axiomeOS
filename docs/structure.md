@@ -54,26 +54,37 @@ axiomeOS/
 
 ```
 kernel/
+├── hal/                    # Hardware abstraction layer (C++, arch-neutral)
+│   ├── hal.h               # Umbrella header + hal::platform() binding
+│   ├── hal_portio.h        # IPortIo    — port-mapped I/O
+│   ├── hal_cpu.h           # ICpu       — halt / irq / barriers
+│   ├── hal_irq.h           # IIrqController — handlers, EOI, mask, route
+│   ├── hal_timer.h         # ITimer     — periodic tick timer
+│   ├── hal_serial.h        # ISerial    — console UART
+│   ├── hal_mmio.h          # IMmio      — map physical MMIO
+│   ├── hal_bootinfo.h      # hal_bootinfo — portable boot environment
+│   ├── cshim.h             # extern "C" hal_* shims for C callers
+│   └── hal.cpp             # global binding + shim glue
 ├── arch/
 │   └── x86_64/
-│       ├── boot.S              # Multiboot2 header + entry point
-│       ├── gdt.c               # Global Descriptor Table setup
-│       ├── gdt.h
-│       ├── idt.c               # Interrupt Descriptor Table
-│       ├── idt.h
-│       ├── isr.S               # Interrupt service routines (assembly stubs)
-│       ├── apic.c              # Local APIC + I/O APIC
-│       ├── apic.h
-│       ├── paging.c            # Page table manipulation
-│       ├── paging.h
-│       ├── io.c                # Port I/O (inb, outb, etc.)
-│       ├── io.h
-│       ├── serial.c            # COM1/COM2 serial debug output
-│       ├── serial.h
-│       ├── timer.c             # PIT/HPET/APIC timer driver
-│       ├── timer.h
-│       ├── cpu.h               # CPU feature detection (CPUID)
-│       └── smp.c               # SMP boot (AP bringup via ACPI MADT)
+│       ├── hal/            # x86_64 HAL backends (C++)
+│       │   ├── x86_portio.cpp
+│       │   ├── x86_cpu.cpp
+│       │   ├── x86_irq.cpp
+│       │   ├── x86_timer.cpp
+│       │   ├── x86_serial.cpp
+│       │   ├── x86_mmio.cpp
+│       │   └── arch_init.cpp
+│       ├── boot.S          # Multiboot2 header + entry point
+│       ├── idt.c/.h        # Interrupt Descriptor Table
+│       ├── isr.S           # Interrupt service routines (assembly stubs)
+│       ├── isr_handlers.c  # Exceptions + device vector dispatch
+│       ├── apic.c/.h       # Local APIC + timer
+│       ├── ioapic.c/.h     # I/O APIC
+│       ├── switch.S        # Context switch (ring 0 and ring 3)
+│       ├── syscall.S
+│       ├── tss.c/.h        # Task state segment
+│       └── serial.c        # C shim over hal::serial()
 ├── mm/
 │   ├── pmm.c                   # Physical memory manager (bitmap/buddy)
 │   ├── pmm.h

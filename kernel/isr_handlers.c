@@ -8,6 +8,7 @@
 #include "vmm.h"
 #include "pmm.h"
 #include "sched.h"
+#include "hal/cshim.h"
 
 static const char *exception_names[] = {
     [0]  = "Divide Error",
@@ -38,8 +39,7 @@ void isr_handler(struct isr_frame *frame)
 {
     if (frame->int_no == 14)
     {
-        unsigned long cr2;
-        __asm__("mov %%cr2, %0" : "=r"(cr2));
+        unsigned long cr2 = (unsigned long)hal_cpu_fault_address();
         int user = (frame->cs & 3) != 0;
 
         if (!(frame->err_code & 1))
@@ -75,8 +75,7 @@ void isr_handler(struct isr_frame *frame)
 
         if (frame->int_no == 14)
         {
-            unsigned long cr2;
-            __asm__("mov %%cr2, %0" : "=r"(cr2));
+            unsigned long cr2 = (unsigned long)hal_cpu_fault_address();
             int user = (frame->cs & 3) != 0;
             printk("!!! PAGE FAULT @0x%lx ec=0x%lx (user=%d) RIP=0x%lx\n",
                    cr2, frame->err_code, user, frame->rip);
@@ -88,30 +87,48 @@ void isr_handler(struct isr_frame *frame)
             printk("    *** DOUBLE FAULT (Trying to dump state) ***\n");
 
         while (1)
-            __asm__ volatile("hlt");
+            hal_cpu_halt();
     }
-    else if (frame->int_no == 0x20)
+    else if (frame->int_no >= 0x20)
     {
-        apic_timer_tick();
-        sched_tick();
-        if (sched_current() && sched_current()->quantum <= 0)
-            sched_yield();
+        /* Device interrupts: dispatch through the HAL so handlers are
+           registered centrally (see isr_init) and the APIC/IOAPIC wiring
+           stays behind the HAL interface. */
+        hal_irq_dispatch((int)frame->int_no);
     }
-    else if (frame->int_no == 0x21)
-    {
-        keyboard_irq_handler();
-        apic_eoi();
-    }
-    else if (frame->int_no == 0x22)
-    {
-        mouse_irq_handler();
-        apic_eoi();
-    }
-    else if (frame->int_no == 0x24)
-    {
-        serial_irq_handler();
-        apic_eoi();
-    }
+}
+
+/* HAL device-vector wrappers. Timer and the PS/2 / serial devices keep the
+   exact EOI ordering of the old hardcoded dispatch. */
+
+static void timer_irq_wrapper(void *ctx)
+{
+    (void)ctx;
+    apic_timer_tick();
+    sched_tick();
+    if (sched_current() && sched_current()->quantum <= 0)
+        sched_yield();
+}
+
+static void kbd_irq_wrapper(void *ctx)
+{
+    (void)ctx;
+    keyboard_irq_handler();
+    hal_irq_eoi();
+}
+
+static void mouse_irq_wrapper(void *ctx)
+{
+    (void)ctx;
+    mouse_irq_handler();
+    hal_irq_eoi();
+}
+
+static void serial_irq_wrapper(void *ctx)
+{
+    (void)ctx;
+    serial_irq_handler();
+    hal_irq_eoi();
 }
 
 void isr_init(void)
@@ -154,4 +171,10 @@ void isr_init(void)
     idt_set_gate(0x21, (uintptr_t)isr_kbd, 0x8E, 0);
     idt_set_gate(0x22, (uintptr_t)isr_mouse, 0x8E, 0);
     idt_set_gate(0x24, (uintptr_t)isr_serial, 0x8E, 0);
+
+    /* Bind device vectors to their HAL-registered handlers. */
+    hal_irq_register(0x20, timer_irq_wrapper, 0);
+    hal_irq_register(0x21, kbd_irq_wrapper, 0);
+    hal_irq_register(0x22, mouse_irq_wrapper, 0);
+    hal_irq_register(0x24, serial_irq_wrapper, 0);
 }

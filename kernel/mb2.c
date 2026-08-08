@@ -3,6 +3,7 @@
 #include "printk.h"
 #include "framebuffer.h"
 #include "mmap.h"
+#include "hal/hal_bootinfo.h"
 
 struct mmap_info kernel_mmap;
 uint64_t mmap_max_addr;
@@ -92,6 +93,7 @@ void mb2_parse(unsigned long mb2_info_addr)
                     kernel_mmap.count++;
                     mentry += mmap->entry_size;
                 }
+                hal_bootinfo()->mmap_max_addr = mmap_max_addr;
                 break;
             }
 
@@ -102,6 +104,16 @@ void mb2_parse(unsigned long mb2_info_addr)
                 printk("MB2 tag: FB addr=0x%lx %ux%u pitch=%u bpp=%u type=%u\n",
                        fb->fb_addr, fb->fb_width, fb->fb_height,
                        fb->fb_pitch, fb->fb_bpp, fb->fb_type);
+
+                struct hal_bootinfo *bi = hal_bootinfo();
+                bi->framebuffer_present = 1;
+                bi->fb_addr = (uintptr_t)fb->fb_addr;
+                bi->fb_width = fb->fb_width;
+                bi->fb_height = fb->fb_height;
+                bi->fb_pitch = fb->fb_pitch;
+                bi->fb_bpp = fb->fb_bpp;
+                bi->fb_type = fb->fb_type;
+
                 fb_init((uintptr_t)fb->fb_addr, fb->fb_width, fb->fb_height,
                         fb->fb_pitch, fb->fb_bpp, fb->fb_type);
                 break;
@@ -116,6 +128,7 @@ void mb2_parse(unsigned long mb2_info_addr)
                        rsdp->rsdp[0], rsdp->rsdp[1], rsdp->rsdp[2], rsdp->rsdp[3],
                        rsdp->rsdp[4], rsdp->rsdp[5], rsdp->rsdp[6], rsdp->rsdp[7]);
                 acpi_rsdp_addr = (void *)(uintptr_t)(rsdp->rsdp);
+                hal_bootinfo()->acpi_rsdp = acpi_rsdp_addr;
                 break;
             }
 
