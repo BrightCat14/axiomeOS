@@ -1073,6 +1073,18 @@ static uint64_t sys_getpwnam(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
     return 0;
 }
 
+static uint64_t sys_reload_users(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a1;(void)a2;(void)a3;(void)a4;(void)a5;
+    struct thread *t = sched_current();
+    if (!t)
+        return (uint64_t)-EPERM;
+    if (t->role != ROLE_SYSTEM && !(t->caps_prm & CAP_USER_MGMT))
+        return (uint64_t)-EPERM;
+    security_reload();
+    return 0;
+}
+
 /* ---- loadable kernel modules (.kxt) ---- */
 
 static int module_privileged(void)
@@ -1431,6 +1443,7 @@ static syscall_fn syscall_table[] = {
     [SYS_MODULE_UNLOAD] = sys_module_unload,
     [SYS_MMAP]          = sys_mmap,
     [SYS_UNAME]         = sys_uname,
+    [SYS_RELOAD_USERS]  = sys_reload_users,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 

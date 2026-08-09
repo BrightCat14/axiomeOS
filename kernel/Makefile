@@ -34,7 +34,7 @@ ASM_OBJS := $(patsubst %.S, $(BUILD_DIR)/%.o, $(ASM_SRCS))
 # by the ELF loader. They are deliberately NOT embedded in the kernel image.
 USER_PROGS := init hello cat echo sh ls mkdir cp mv rm touch whoami uname \
 	login su chmod chown vfs_test ipc_test proc_test driver_test net_test \
-	kill kxtload kxtunload syslogd
+	kill kxtload kxtunload syslogd oobe
 USER_ELFS := $(addprefix userspace/,$(addsuffix .elf,$(USER_PROGS)))
 USER_OBJS := $(patsubst %,$(BUILD_DIR)/%_user.o,$(USER_PROGS))
 
