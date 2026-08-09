@@ -293,15 +293,16 @@ static int vga_probe(struct pci_device *pdev)
 /* NOTE: the NVMe driver ships as a loadable module (kernel/modules/nvme.kxt)
    and is loaded at runtime via the .kxt framework (kxtload).  The built-in
    stub that used to claim class 0x01/0x08 was removed so the real driver is
-   the sole owner of any NVMe controller. */
+   the sole owner of any NVMe controller.
+
+   The same applies to AHCI (serial ATA): the SATA driver ships as a loadable
+   module (kernel/modules/sata.kxt, class 0x01/subclass 0x06).  The built-in
+   "ahci" stub that used to claim the controller (and register a bogus usb0
+   node) was removed so the real driver is the sole owner. */
 
 static struct driver ata_drv = {
     .name = "ata-ide", .vendor = DRV_ANY, .device = DRV_ANY,
     .pci_class = 0x01, .pci_subclass = 0x01, .probe = ata_probe,
-};
-static struct driver ahci_drv = {
-    .name = "ahci", .vendor = DRV_ANY, .device = DRV_ANY,
-    .pci_class = 0x01, .pci_subclass = 0x06, .probe = xhci_probe,
 };
 static struct driver xhci_drv = {
     .name = "xhci", .vendor = DRV_ANY, .device = DRV_ANY,
@@ -322,7 +323,6 @@ static struct driver vga_drv = {
 void driver_init(void)
 {
     driver_register(&ata_drv);
-    driver_register(&ahci_drv);
     driver_register(&xhci_drv);
     driver_register(&vga_drv);
 
