@@ -8,7 +8,7 @@ DEV ?= /dev/sdx
 
 # Partition geometry (must stay in sync with tools/mkpart.py).
 BOOT_PART_LBA     := 2048
-BOOT_PART_SECTORS := 130024
+BOOT_PART_SECTORS := 129024
 ROOT_PART_LBA     := 131072
 ROOT_PART_SECTORS := 393216
 DISK_SECTORS      := 524288          # 256 MiB

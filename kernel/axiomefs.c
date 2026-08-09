@@ -140,7 +140,6 @@ static void afs_dir_add_entry(struct axfs_state *st, uint64_t dir_block,
         nd->type = type;
         nd->namelen = (uint8_t)__builtin_strlen(name);
         __builtin_memcpy(nd->name, name, nd->namelen);
-        afs_set_checksum(nb);
         afs_write_block(st, di.extents[target].physical_block, nb);
         return;
     }
@@ -157,7 +156,6 @@ static void afs_dir_add_entry(struct axfs_state *st, uint64_t dir_block,
     nd->type = type;
     nd->namelen = (uint8_t)__builtin_strlen(name);
     __builtin_memcpy(nd->name, name, nd->namelen);
-    afs_set_checksum(nb);
     afs_write_block(st, new_data, nb);
 
     di.extents[di.extent_count].physical_block = new_data;
@@ -191,7 +189,6 @@ static void afs_dir_remove_entry(struct axfs_state *st, uint64_t dir_block,
                 d->inode_id = 0;
                 d->namelen = 0;
                 d->name[0] = 0;
-                afs_set_checksum(blk);
                 afs_write_block(st, di.extents[e].physical_block, blk);
                 return;
             }
@@ -315,7 +312,6 @@ static size_t axfs_write(struct vfs_super *sb, struct vnode *node, size_t off,
         if (phys) afs_read_block(st, phys, blk);
         size_t src = L * bs + lo - off;
         __builtin_memcpy(blk + lo, (const uint8_t *)buf + src, clen);
-        afs_set_checksum(blk);
         afs_write_block(st, newphys, blk);
         if (L < in.extent_count)
             in.extents[L].physical_block = newphys;   /* same block */
@@ -396,11 +392,6 @@ static uint64_t axfs_parent_dir(struct axfs_state *st, const char *relpath, char
     uint64_t cur = st->root_inode_block;
     if (dl > 0)
     {
-        struct vnode rv;
-        rv.priv = (void *)(uintptr_t)cur;
-        struct vnode *v = axfs_lookup((struct vfs_super *)0, &rv, dpath);
-        (void)sizeof(v);
-        /* axfs_lookup needs sb; walk manually instead */
         const char *p = dpath;
         while (*p)
         {
