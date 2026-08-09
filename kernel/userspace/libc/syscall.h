@@ -63,6 +63,7 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_MODULE_UNLOAD 54
 #define SYS_MMAP          55
 #define SYS_UNAME         56
+#define SYS_RELOAD_USERS  57
 
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
@@ -198,6 +199,7 @@ unsigned long long getcap(void);
 int setuid(uid_t uid);
 int setgid(gid_t gid);
 int sys_getpwnam(const char *name, uid_t *uid, gid_t *gid);
+int sys_reload_users(void);
 int chmod(const char *path, unsigned int mode);
 int chown(const char *path, uid_t uid, gid_t gid);
 

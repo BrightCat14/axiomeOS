@@ -67,7 +67,6 @@ int g_nusers;
 static const struct user_entry g_fallback_users[] = {
     { "root",  0,    0,    ROLE_SYSTEM, "x", "/root",      "/bin/sh" },
     { "system",3,    3,    ROLE_SYSTEM, "x", "/sbin",      "/sbin/nologin" },
-    { "alice", 1000, 1000, ROLE_USER,   "x", "/home/alice","/bin/sh" },
     { "guest", 65534,65534, ROLE_GUEST, "x", "/Temporary", "/sbin/nologin" },
 };
 
@@ -146,7 +145,7 @@ static void sha256(const uint8_t *msg, size_t len, uint8_t out[32])
                    ((uint32_t)buf[off + t*4+2] << 8) |
                    ((uint32_t)buf[off + t*4+3]);
         for (int t = 16; t < 64; t++)
-            w[t] = sha_rotr(w[t-2],17) ^ sha_rotr(w[t-2],19) ^ (w[t-2]>>10) + w[t-7] +
+            w[t] = (sha_rotr(w[t-2],17) ^ sha_rotr(w[t-2],19) ^ (w[t-2]>>10)) + w[t-7] +
                    (sha_rotr(w[t-15],7) ^ sha_rotr(w[t-15],18) ^ (w[t-15]>>3)) + w[t-16];
 
         uint32_t a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];
@@ -256,9 +255,10 @@ static void parse_passwd_line(const char *line)
     g_nusers++;
 }
 
-/* Read /etc/passwd from the (already-mounted) root filesystem and populate
-   the in-kernel user database. Falls back to a built-in table if missing. */
-void security_init(void)
+/* Re-parse /etc/passwd from the (already-mounted) root filesystem and
+   repopulate the in-kernel user database. Used at boot by security_init()
+   and at runtime by the first-boot OOBE after it creates the user. */
+static void security_load_passwd(void)
 {
     g_nusers = 0;
 
@@ -287,6 +287,11 @@ void security_init(void)
         }
         vfs_release(n);
     }
+}
+
+void security_init(void)
+{
+    security_load_passwd();
 
     if (g_nusers == 0)
     {
@@ -298,4 +303,14 @@ void security_init(void)
     {
         printk("SEC: loaded %d users from /etc/passwd\n", g_nusers);
     }
+}
+
+/* Re-load the user database from disk. Used after the first-boot OOBE adds a
+   user, so lookups (getpwnam, security_authenticate) see it immediately
+   without rebooting. */
+void security_reload(void)
+{
+    int old = g_nusers;
+    security_load_passwd();
+    printk("SEC: reloaded user database (%d -> %d users)\n", old, g_nusers);
 }

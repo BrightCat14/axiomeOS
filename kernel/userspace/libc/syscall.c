@@ -131,6 +131,11 @@ int sys_getpwnam(const char *name, uid_t *uid, gid_t *gid)
     return (int)syscall(SYS_GETPWNAM, (long)name, (long)uid, (long)gid, 0, 0, 0);
 }
 
+int sys_reload_users(void)
+{
+    return (int)syscall(SYS_RELOAD_USERS, 0, 0, 0, 0, 0, 0);
+}
+
 int ipc_create(void)
 {
     return (int)syscall(SYS_IPC_CREATE, 0, 0, 0, 0, 0, 0);
