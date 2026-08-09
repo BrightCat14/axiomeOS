@@ -107,6 +107,7 @@ extern int g_nusers;
 /* ---- runtime security helpers ---- */
 int sec_check_cap(struct thread *t, uint64_t cap);
 void security_init(void);
+void security_reload(void);
 int security_authenticate(const char *username, const char *password);
 const struct user_entry *security_lookup_name(const char *name);
 const struct user_entry *security_lookup_uid(uid_t uid);

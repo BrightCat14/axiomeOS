@@ -6,7 +6,9 @@
 
 System/                    0755  0  0  d
 System/Configuration/       0755  0  0  d
-System/Configuration/passwd 0644  0  0  f  content:root:x:0:0:system:/root:/bin/sh\nalice:x:1000:1000:user:/Users/alice:/bin/sh\nguest:x:65534:65534:guest:/Temporary:/sbin/nologin\n
+# System/Configuration/passwd: root + guest only. Human users are created at
+# first boot by the CLI OOBE (/bin/oobe), which appends them here.
+System/Configuration/passwd 0644  0  0  f  content:root:x:0:0:system:/root:/bin/sh\nguest:x:65534:65534:guest:/Temporary:/sbin/nologin\n
 System/Configuration/axiome-init.conf 0644 0 0 f bin:config/axiome-init.conf
 System/Configuration/journal.log 0644 0 0 f content:
 System/Variable/            0755  0  0  d
@@ -20,7 +22,6 @@ System/Extensions/          0755  0  0  d
 
 
 Users/          0755  0  0  d
-Users/alice/    0755 1000 1000 d
 Temporary/      1777  0  0  d
 Devices/        0755 0  0  d
 boot/           0755 0  0  d
@@ -43,6 +44,7 @@ Binaries/touch          0755  0  0  f  bin:kernel/userspace/touch.elf
 Binaries/whoami         0755  0  0  f  bin:kernel/userspace/whoami.elf
 Binaries/uname          0755  0  0  f  bin:kernel/userspace/uname.elf
 Binaries/login          0755  0  0  f  bin:kernel/userspace/login.elf
+Binaries/oobe           0755  0  0  f  bin:kernel/userspace/oobe.elf
 Binaries/su             0755  0  0  f  bin:kernel/userspace/su.elf
 Binaries/chmod          0755  0  0  f  bin:kernel/userspace/chmod.elf
 Binaries/chown          0755  0  0  f  bin:kernel/userspace/chown.elf
