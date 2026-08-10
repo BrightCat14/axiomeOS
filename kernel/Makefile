@@ -13,6 +13,8 @@ CFLAGS += -Wall -Wextra -Wpedantic
 CFLAGS += -I$(REPO_ROOT) -I$(REPO_ROOT)/kernel
 CFLAGS += -DGIT_COMMIT=\"$(shell git rev-parse --short HEAD)\"
 CFLAGS += -DBUILD_TIME=\"$(shell date +%s)\"
+CFLAGS += -DBUILD_TIME_UNIX=$(shell date +%s)ULL
+CFLAGS += -DBUILD_TZ_OFFSET_SEC=$(shell python3 -c "import time; print(-time.timezone if not time.daylight else -time.altzone)")LL
 
 # C++ is used for the hardware abstraction layer. Exceptions/RTTI and the
 # standard library are unavailable in the kernel; placement new into static
@@ -34,7 +36,7 @@ ASM_OBJS := $(patsubst %.S, $(BUILD_DIR)/%.o, $(ASM_SRCS))
 # by the ELF loader. They are deliberately NOT embedded in the kernel image.
 USER_PROGS := init hello cat echo sh ls mkdir cp mv rm touch whoami uname \
 	login su chmod chown vfs_test ipc_test proc_test driver_test net_test \
-	kill kxtload kxtunload syslogd oobe
+	kill kxtload kxtunload syslogd oobe date
 USER_ELFS := $(addprefix userspace/,$(addsuffix .elf,$(USER_PROGS)))
 USER_OBJS := $(patsubst %,$(BUILD_DIR)/%_user.o,$(USER_PROGS))
 
@@ -44,7 +46,8 @@ USER_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
 
 LIBC_SRCS := userspace/libc/errno.c userspace/libc/string.c \
 	userspace/libc/stdlib.c userspace/libc/stdio.c \
-	userspace/libc/syscall.c userspace/libc/signal.c userspace/libc/crt0.c
+	userspace/libc/syscall.c userspace/libc/signal.c userspace/libc/crt0.c \
+	userspace/libc/time.c
 LIBC_OBJS := $(patsubst userspace/libc/%.c, $(BUILD_DIR)/libc_%.o, $(LIBC_SRCS))
 
 .PHONY: all clean modules

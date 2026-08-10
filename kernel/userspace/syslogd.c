@@ -2,6 +2,7 @@
 #include "syscall.h"
 #include "string.h"
 #include "stdlib.h"
+#include "time.h"
 
 /* syslogd - a long-running axiome-init service.
  *
@@ -16,10 +17,10 @@
 
 static void delay(void)
 {
-    /* No clock syscall is exposed to userspace yet, so we yield the CPU a
-       bounded number of times to space out heartbeats without busy-spinning. */
-    for (volatile int i = 0; i < 4000; i++)
-        sys_yield();
+    struct timespec ts;
+    ts.tv_sec  = 1;
+    ts.tv_nsec = 0;
+    nanosleep(&ts, 0);
 }
 
 int main(int argc, char **argv)

@@ -1,4 +1,5 @@
 #include "syscall.h"
+#include "clock.h"
 #include "printk.h"
 #include "sched.h"
 #include "tss.h"
@@ -1539,6 +1540,69 @@ static uint64_t sys_shm_attach(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a
     return va;
 }
 
+/* ---- time syscalls ---- */
+
+/* SYS_TIME: return wall-clock seconds; optionally write to *a1. */
+static uint64_t sys_time(uint64_t a1, uint64_t a2, uint64_t a3,
+                         uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    uint64_t sec = clock_wall_sec();
+    if (a1)
+        *(uint64_t *)a1 = sec;
+    return sec;
+}
+
+/* Kernel-side timeval layout must match userspace libc/time.h. */
+struct k_timeval {
+    long tv_sec;
+    long tv_usec;
+};
+
+/* SYS_GETTIMEOFDAY: fill *tv with wall-clock seconds + microseconds. */
+static uint64_t sys_gettimeofday(uint64_t a1, uint64_t a2, uint64_t a3,
+                                 uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    if (!a1)
+        return 0;
+    uint64_t sec, nsec;
+    clock_wall_ns(&sec, &nsec);
+    struct k_timeval *tv = (struct k_timeval *)a1;
+    tv->tv_sec  = (long)sec;
+    tv->tv_usec = (long)(nsec / 1000);
+    return 0;
+}
+
+/* Kernel-side timespec layout must match userspace libc/time.h. */
+struct k_timespec {
+    long tv_sec;
+    long tv_nsec;
+};
+
+/* SYS_NANOSLEEP: block for at least req nanoseconds; write remainder to rem
+   (always zero on axiomeOS — we don't support signal interruption yet). */
+static uint64_t sys_nanosleep(uint64_t a1, uint64_t a2, uint64_t a3,
+                              uint64_t a4, uint64_t a5)
+{
+    (void)a3; (void)a4; (void)a5;
+    if (!a1)
+        return (uint64_t)-1;
+    const struct k_timespec *req = (const struct k_timespec *)a1;
+    if (req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec >= 1000000000L)
+        return (uint64_t)-1;
+    uint64_t ns = (uint64_t)req->tv_sec * 1000000000ULL
+                + (uint64_t)req->tv_nsec;
+    sched_sleep_ns(ns);
+    if (a2)
+    {
+        struct k_timespec *rem = (struct k_timespec *)a2;
+        rem->tv_sec  = 0;
+        rem->tv_nsec = 0;
+    }
+    return 0;
+}
+
 static syscall_fn syscall_table[] = {
     [SYS_PRINT]  = sys_print,
     [SYS_YIELD]  = sys_yield,
@@ -1599,6 +1663,10 @@ static syscall_fn syscall_table[] = {
     [SYS_UNAME]         = sys_uname,
     [SYS_RELOAD_USERS]  = sys_reload_users,
     [SYS_EXECVE]        = sys_execve,
+    /* time */
+    [SYS_TIME]          = sys_time,
+    [SYS_GETTIMEOFDAY]  = sys_gettimeofday,
+    [SYS_NANOSLEEP]     = sys_nanosleep,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 

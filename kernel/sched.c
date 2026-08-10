@@ -1,4 +1,5 @@
 #include "sched.h"
+#include "clock.h"
 #include "printk.h"
 #include "slab.h"
 #include "pmm.h"
@@ -501,6 +502,33 @@ void sched_tick(void)
 {
     if (current && current->quantum > 0)
         current->quantum--;
+
+    /* Wake any threads whose sleep deadline has passed. */
+    uint64_t now = clock_mono_ns();
+    if (ready_head)
+    {
+        struct thread *t = ready_head;
+        do {
+            if (t->state == THREAD_BLOCKED &&
+                t->sleep_deadline_ns != 0 &&
+                now >= t->sleep_deadline_ns)
+            {
+                t->sleep_deadline_ns = 0;
+                t->state = THREAD_READY;
+            }
+            t = t->next;
+        } while (t != ready_head);
+    }
+}
+
+/* Block the calling thread for at least ns nanoseconds.
+   Returns immediately if ns == 0. */
+void sched_sleep_ns(uint64_t ns)
+{
+    if (ns == 0)
+        return;
+    current->sleep_deadline_ns = clock_mono_ns() + ns;
+    sched_suspend();
 }
 
 struct thread *sched_current(void)
