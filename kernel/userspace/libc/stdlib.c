@@ -1,33 +1,148 @@
 #include "stdlib.h"
 #include "errno.h"
 #include "syscall.h"
+#include "string.h"
 #include <stddef.h>
 
 #define HEAP_SIZE (4UL * 1024 * 1024)
 static unsigned char heap[HEAP_SIZE];
-static unsigned long heap_off = 0;
+static int heap_init = 0;
 
 char **environ;
+
+/* Simple free-list allocator with block headers */
+typedef struct block {
+    size_t size;        /* Size of user data (excluding header) */
+    int free;           /* 1 if free, 0 if allocated */
+    struct block *next; /* Next block in list */
+} block_t;
+
+#define BLOCK_SIZE sizeof(block_t)
+#define ALIGN16(x) (((x) + 15UL) & ~15UL)
+
+static block_t *free_list = NULL;
+
+static void init_heap(void)
+{
+    if (heap_init)
+        return;
+    free_list = (block_t *)heap;
+    free_list->size = HEAP_SIZE - BLOCK_SIZE;
+    free_list->free = 1;
+    free_list->next = NULL;
+    heap_init = 1;
+}
+
+static void split_block(block_t *block, size_t size)
+{
+    if (block->size >= size + BLOCK_SIZE + 16)
+    {
+        block_t *new_block = (block_t *)((char *)block + BLOCK_SIZE + size);
+        new_block->size = block->size - size - BLOCK_SIZE;
+        new_block->free = 1;
+        new_block->next = block->next;
+        block->size = size;
+        block->next = new_block;
+    }
+}
+
+static void merge_free_blocks(void)
+{
+    block_t *curr = free_list;
+    while (curr && curr->next)
+    {
+        if (curr->free && curr->next->free)
+        {
+            curr->size += BLOCK_SIZE + curr->next->size;
+            curr->next = curr->next->next;
+        }
+        else
+        {
+            curr = curr->next;
+        }
+    }
+}
 
 void *malloc(size_t n)
 {
     if (n == 0)
-        return 0;
-    unsigned long sz = (unsigned long)n;
-    sz = (sz + 15UL) & ~15UL;
-    if (heap_off + sz > HEAP_SIZE)
+        return NULL;
+    
+    if (!heap_init)
+        init_heap();
+    
+    size_t size = ALIGN16(n);
+    block_t *curr = free_list;
+    
+    while (curr)
     {
-        errno = ENOMEM;
-        return 0;
+        if (curr->free && curr->size >= size)
+        {
+            split_block(curr, size);
+            curr->free = 0;
+            return (void *)((char *)curr + BLOCK_SIZE);
+        }
+        curr = curr->next;
     }
-    void *p = &heap[heap_off];
-    heap_off += sz;
-    return p;
+    
+    errno = ENOMEM;
+    return NULL;
 }
 
 void free(void *p)
 {
-    (void)p;
+    if (!p)
+        return;
+    
+    block_t *block = (block_t *)((char *)p - BLOCK_SIZE);
+    block->free = 1;
+    merge_free_blocks();
+}
+
+void *calloc(size_t nmemb, size_t size)
+{
+    if (nmemb == 0 || size == 0)
+        return NULL;
+    
+    /* Check for overflow */
+    if (nmemb > (size_t)-1 / size)
+    {
+        errno = ENOMEM;
+        return NULL;
+    }
+    
+    size_t total = nmemb * size;
+    void *p = malloc(total);
+    if (p)
+        memset(p, 0, total);
+    return p;
+}
+
+void *realloc(void *ptr, size_t size)
+{
+    if (!ptr)
+        return malloc(size);
+    
+    if (size == 0)
+    {
+        free(ptr);
+        return NULL;
+    }
+    
+    block_t *block = (block_t *)((char *)ptr - BLOCK_SIZE);
+    
+    /* If the block is already large enough, return it */
+    if (block->size >= size)
+        return ptr;
+    
+    /* Allocate new block and copy data */
+    void *new_ptr = malloc(size);
+    if (!new_ptr)
+        return NULL;
+    
+    memcpy(new_ptr, ptr, block->size < size ? block->size : size);
+    free(ptr);
+    return new_ptr;
 }
 
 int atoi(const char *s)
