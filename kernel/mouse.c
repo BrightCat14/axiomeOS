@@ -1,8 +1,8 @@
 #include "mouse.h"
 #include "printk.h"
-#include "softirq.h"
 #include "io.h"
 #include "hal/cshim.h"
+#include "spinlock.h"
 
 #define MOUSE_IRQ 12
 
@@ -21,6 +21,7 @@
 
 static struct mouse_event evbuf[MOUSE_EVENT_BUF];
 static volatile int evhead, evtail;
+static spinlock_t evlock = SPINLOCK_INIT;
 static uint8_t mouse_cycle;
 static uint8_t mouse_packet[3];
 
@@ -47,15 +48,9 @@ static uint8_t aux_read(void)
     return 0;
 }
 
-static void mouse_process_packet(void)
+void mouse_submit_event(int dx, int dy, uint8_t buttons)
 {
-    int dx = (int)(int8_t)mouse_packet[1];
-    int dy = -(int)(int8_t)mouse_packet[2];
-    uint8_t buttons = mouse_packet[0] & 7;
-
-    if (mouse_packet[0] & 0x40) dx += 0xFFFFFF00;
-    if (mouse_packet[0] & 0x80) dy -= 0xFFFFFF00;
-
+    unsigned long flags = spin_lock_irq(&evlock);
     int next = (evhead + 1) % MOUSE_EVENT_BUF;
     if (next != evtail)
     {
@@ -64,14 +59,15 @@ static void mouse_process_packet(void)
         evbuf[evhead].buttons = buttons;
         evhead = next;
     }
+    spin_unlock_irq(&evlock, flags);
 }
 
-static void mouse_poll(void *arg)
+static void mouse_process_packet(void)
 {
-    (void)arg;
-    struct mouse_event ev;
-    while (mouse_read_event(&ev))
-        printk("mouse: dx=%d dy=%d btns=%u\n", ev.dx, ev.dy, ev.buttons);
+    if ((mouse_packet[0] & 0x08) == 0 || (mouse_packet[0] & 0xc0) != 0)
+        return;
+    mouse_submit_event((int)(int8_t)mouse_packet[1],
+                       -(int)(int8_t)mouse_packet[2], mouse_packet[0] & 7);
 }
 
 void mouse_irq_handler(void)
@@ -86,7 +82,6 @@ void mouse_irq_handler(void)
         {
             mouse_cycle = 0;
             mouse_process_packet();
-            softirq_schedule(mouse_poll, 0);
         }
     }
 }
@@ -118,9 +113,13 @@ void mouse_init(void)
 
 int mouse_read_event(struct mouse_event *ev)
 {
-    if (evtail == evhead)
+    unsigned long flags = spin_lock_irq(&evlock);
+    if (evtail == evhead) {
+        spin_unlock_irq(&evlock, flags);
         return 0;
+    }
     *ev = evbuf[evtail];
     evtail = (evtail + 1) % MOUSE_EVENT_BUF;
+    spin_unlock_irq(&evlock, flags);
     return 1;
 }

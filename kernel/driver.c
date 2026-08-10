@@ -7,6 +7,7 @@
 #include "framebuffer.h"
 #include "vmm.h"
 #include "sched.h"
+#include "xhci.h"
 #include <stddef.h>
 
 static struct driver *g_drivers;
@@ -85,9 +86,10 @@ int driver_probe_pci(struct pci_device *pdev)
                    (d->pci_subclass == pdev->subclass);
         if (v_ok && d_ok && c_ok && s_ok)
         {
+            int result = d->probe ? d->probe(pdev) : 0;
+            if (result < 0)
+                continue;
             printk("DRV: %s bound to %x:%x\n", d->name, (int)pdev->vendor, (int)pdev->device);
-            if (d->probe)
-                d->probe(pdev);
             return 1;
         }
     }
@@ -206,23 +208,6 @@ static int ata_probe(struct pci_device *pdev)
     printk("DRV: ide0 -> /dev/ide0 (%lu sectors)\n", (unsigned long)bd->total_sectors);
     return 0;
 }
-
-static int stub_probe(struct pci_device *pdev, const char *name)
-{
-    if (device_find(name))
-        return 0;
-    struct device *d = (struct device *)kmalloc(sizeof(struct device));
-    memset(d, 0, sizeof(*d));
-    dname(d->name, name);
-    d->type = DEV_BLOCK;
-    d->ops.read = 0; d->ops.write = 0;
-    device_register(d);
-    printk("DRV: %s -> /dev/%s (ops not implemented)\n", name, name);
-    return 0;
-}
-
-static int xhci_probe(struct pci_device *pdev)
-{ return stub_probe(pdev, "usb0"); }
 
 /* ---- fb0 device (framebuffer) ---- */
 static long fb_read(struct device *d, uint64_t off, void *buf, size_t len)

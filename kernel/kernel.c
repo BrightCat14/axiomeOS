@@ -32,6 +32,7 @@
 #include "mmap.h"
 #include "hal/cshim.h"
 #include "hal/hal_bootinfo.h"
+#include "xhci.h"
 
 void mb2_parse(unsigned long mb2_info_addr);
 void isr_init(void);
@@ -219,6 +220,7 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     {
         softirq_poll();
         netdev_poll_all();
+        xhci_poll();
 
         yield_count++;
         if ((yield_count % 50) == 0)

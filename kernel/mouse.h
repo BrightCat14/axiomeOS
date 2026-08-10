@@ -12,6 +12,7 @@ struct mouse_event
 
 void mouse_init(void);
 void mouse_irq_handler(void);
+void mouse_submit_event(int dx, int dy, uint8_t buttons);
 int mouse_read_event(struct mouse_event *ev);
 
 #endif
