@@ -6,7 +6,8 @@
 #include "string.h"
 
 static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
-                            int argc, char **argv, uint64_t *stack_top);
+                            int argc, char **argv, int envc, char **envp,
+                            uint64_t *stack_top);
 
 static int elf_valid(const struct elf64_ehdr *h)
 {
@@ -24,7 +25,8 @@ static int elf_valid(const struct elf64_ehdr *h)
 }
 
 int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
-              uint64_t *entry, uint64_t *stack_top, int argc, char **argv)
+              uint64_t *entry, uint64_t *stack_top, int argc, char **argv,
+              int envc, char **envp)
 {
     if (size < sizeof(struct elf64_ehdr))
         return -1;
@@ -35,6 +37,37 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
         printk("ELF: invalid header\n");
         return -1;
     }
+    if (h->e_phentsize != sizeof(struct elf64_phdr) ||
+        h->e_phoff > size ||
+        (uint64_t)h->e_phnum > (size - h->e_phoff) / sizeof(struct elf64_phdr))
+    {
+        printk("ELF: invalid program headers\n");
+        return -1;
+    }
+
+    const struct elf64_phdr *ph = (const struct elf64_phdr *)(data + h->e_phoff);
+    int entry_ok = 0;
+    for (uint16_t i = 0; i < h->e_phnum; i++)
+    {
+        if (ph[i].p_type != PT_LOAD)
+            continue;
+        if (ph[i].p_filesz > ph[i].p_memsz || ph[i].p_offset > size ||
+            ph[i].p_filesz > size - ph[i].p_offset ||
+            ph[i].p_vaddr + ph[i].p_memsz < ph[i].p_vaddr ||
+            ph[i].p_vaddr + ph[i].p_memsz + 0xFFFULL < ph[i].p_vaddr + ph[i].p_memsz)
+        {
+            printk("ELF: invalid segment\n");
+            return -1;
+        }
+        if ((ph[i].p_flags & PF_X) && h->e_entry >= ph[i].p_vaddr &&
+            h->e_entry < ph[i].p_vaddr + ph[i].p_memsz)
+            entry_ok = 1;
+    }
+    if (!entry_ok)
+    {
+        printk("ELF: entry outside executable segment\n");
+        return -1;
+    }
 
     /* The new address space owns these user mappings, but it is not yet the
        active page table. Switch to it so writes to the user virtual addresses
@@ -43,7 +76,6 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
     vmm_switch(mmu);
 
     uint64_t highest = 0;
-    const struct elf64_phdr *ph = (const struct elf64_phdr *)(data + h->e_phoff);
 
     for (uint16_t i = 0; i < h->e_phnum; i++)
     {
@@ -70,13 +102,13 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
             if (!phys)
             {
                 printk("ELF: OOM mapping 0x%lx\n", va);
-                return -1;
+                goto fail;
             }
             if (vmm_map_page_in(mmu, va, phys, flags) < 0)
             {
                 pmm_free_frame((void *)phys);
                 printk("ELF: map failed 0x%lx\n", va);
-                return -1;
+                goto fail;
             }
 
             uint64_t copy_off = va - vaddr;
@@ -117,34 +149,42 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
         if (!phys)
         {
             printk("ELF: OOM stack\n");
-            return -1;
+            goto fail;
         }
         if (vmm_map_page_in(mmu, va, phys, MMU_USER | MMU_WRITE) < 0)
         {
             pmm_free_frame((void *)phys);
-            return -1;
+            goto fail;
         }
     }
 
-    if (setup_user_stack(stack_base, stack_pages, argc, argv, &stack_top_ptr))
-        return -1;
+    if (setup_user_stack(stack_base, stack_pages, argc, argv, envc, envp,
+                         &stack_top_ptr))
+        goto fail;
 
     *stack_top = stack_top_ptr;
 
     vmm_switch(saved);
     return 0;
+
+fail:
+    vmm_switch(saved);
+    return -1;
 }
 
-/* Build an initial user stack: argc, argv[], NULL terminator, envp=NULL,
-   with the argument strings copied just above the vector. Returns 0 on ok. */
+/* Build an initial user stack: argc, argv[], NULL, envp[], NULL, with the
+   argument and environment strings copied just above the vectors. */
 static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
-                            int argc, char **argv, uint64_t *stack_top)
+                            int argc, char **argv, int envc, char **envp,
+                            uint64_t *stack_top)
 {
     uint64_t top = stack_base + stack_pages * PAGE_SIZE;
     uint64_t sp = top & ~0xFULL;
 
     if (argc < 0) argc = 0;
     if (argc > 32) argc = 32;
+    if (envc < 0) envc = 0;
+    if (envc > 32) envc = 32;
 
     uint64_t str_ptrs[32];
     for (int i = 0; i < argc; i++)
@@ -154,18 +194,31 @@ static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
         memcpy((void *)(uintptr_t)sp, argv[i], l);
         str_ptrs[i] = sp;
     }
+    uint64_t env_ptrs[32];
+    for (int i = 0; i < envc; i++)
+    {
+        size_t l = strlen(envp[i]) + 1;
+        sp -= l;
+        memcpy((void *)(uintptr_t)sp, envp[i], l);
+        env_ptrs[i] = sp;
+    }
     sp &= ~0xFULL;                 /* lowest string address, 16-aligned */
     uint64_t str_lo = sp;
 
-    /* Aux vector (high -> low): [envp=NULL][argv NULL][argv[argc-1]..argv[0]][argc].
+    /* Vectors (high -> low): [envp NULL][envp...][argv NULL][argv...][argc].
        Reserve it just below the strings and 16-byte align the entry RSP so that,
        at process entry, %rsp points at argc (16-aligned) with argv[0] at %rsp+8
        (so `call main` in crt0 yields RSP%16==8 inside main, per the SysV ABI). */
-    uint64_t base = str_lo - 8UL * (argc + 3);
+    uint64_t base = str_lo - 8UL * (argc + envc + 3);
     base &= ~0xFULL;              /* entry RSP, 16-aligned, points at argc */
 
-    uint64_t w = base + 8UL * (argc + 2);   /* envp NULL slot */
+    uint64_t w = base + 8UL * (argc + envc + 2);   /* envp NULL slot */
     *(uint64_t *)(uintptr_t)w = 0;
+    for (int i = envc - 1; i >= 0; i--)
+    {
+        w -= 8;
+        *(uint64_t *)(uintptr_t)w = env_ptrs[i];
+    }
     w -= 8;
     *(uint64_t *)(uintptr_t)w = 0;          /* argv NULL terminator */
     for (int i = argc - 1; i >= 0; i--)
@@ -192,7 +245,7 @@ int exec_user_program(const uint8_t *elf, size_t size, const char *name)
     char *av[1];
     av[0] = (char *)name;
     uint64_t entry, stack_top;
-    if (elf_load(mmu, elf, size, &entry, &stack_top, 1, av) < 0)
+    if (elf_load(mmu, elf, size, &entry, &stack_top, 1, av, 0, 0) < 0)
     {
         printk("EXEC: failed to load ELF '%s'\n", name);
         vmm_free_root(mmu);
@@ -214,7 +267,7 @@ int spawn_process_with_args(const uint8_t *elf, size_t size, const char *name,
     if (!mmu)
         return -1;
     uint64_t entry, stack_top;
-    if (elf_load(mmu, elf, size, &entry, &stack_top, argc, argv) < 0)
+    if (elf_load(mmu, elf, size, &entry, &stack_top, argc, argv, 0, 0) < 0)
     {
         vmm_free_root(mmu);
         return -1;

@@ -299,6 +299,80 @@ static int copy_path(uint64_t uptr, char *buf, size_t max)
     return (int)i;
 }
 
+#define EXEC_MAX_ARGS 32
+#define EXEC_MAX_ENVS 32
+#define EXEC_STR_MAX  256
+
+static int copy_user_vec(char *const *uvec, int max, char store[][EXEC_STR_MAX],
+                         char **out)
+{
+    if (!uvec)
+        return 0;
+    int count = 0;
+    while (count < max)
+    {
+        const char *us = uvec[count];
+        if (!us)
+            break;
+        size_t i = 0;
+        for (; i < EXEC_STR_MAX - 1; i++)
+        {
+            char c = us[i];
+            store[count][i] = c;
+            if (c == 0)
+                break;
+        }
+        store[count][i] = 0;
+        out[count] = store[count];
+        count++;
+    }
+    return count;
+}
+
+static int read_exec_file(const char *path, const char *cwd,
+                          uint8_t **out_buf, size_t *out_size)
+{
+    struct vnode *n = vfs_lookup(path, cwd);
+    if (!n || n->type != VFS_FILE)
+    {
+        if (n) vfs_release(n);
+        return -1;
+    }
+    if (vfs_check_perms(n, VFS_MAY_EXEC) != 0)
+    {
+        vfs_release(n);
+        return -1;
+    }
+    size_t sz = n->size;
+    if (sz == 0)
+    {
+        vfs_release(n);
+        return -1;
+    }
+    uint8_t *buf = kmalloc(sz);
+    if (!buf)
+    {
+        vfs_release(n);
+        return -1;
+    }
+    size_t done = 0;
+    while (done < sz)
+    {
+        size_t r = vfs_read(n, done, buf + done, sz - done);
+        if (r == 0) break;
+        done += r;
+    }
+    vfs_release(n);
+    if (done != sz)
+    {
+        kfree(buf);
+        return -1;
+    }
+    *out_buf = buf;
+    *out_size = sz;
+    return 0;
+}
+
 static void make_abs(const char *path, const char *cwd, char *out, size_t outsz)
 {
     if (path[0] == '/')
@@ -517,12 +591,16 @@ static uint64_t sys_chdir(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     struct thread *t = sched_current();
     struct vnode *n = vfs_lookup(path, t->cwd);
     if (!n || n->type != VFS_DIR)
+    {
+        if (n) vfs_release(n);
         return (uint64_t)-1;
+    }
     char abs[1024];
     make_abs(path, t->cwd, abs, sizeof(abs));
     int i = 0;
     while (abs[i] && i < 255) { t->cwd[i] = abs[i]; i++; }
     t->cwd[i] = 0;
+    vfs_release(n);
     return 0;
 }
 
@@ -616,6 +694,8 @@ static uint64_t sys_pipe(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     p->nreaders = 1;
     p->nwriters = 1;
     p->wait_reader = 0;
+    p->shared = 0;
+    p->dead = 0;
 
     struct vnode *r = kmalloc(sizeof(struct vnode));
     struct vnode *w = kmalloc(sizeof(struct vnode));
@@ -721,6 +801,80 @@ static int try_exec_path(const char *path, int argc, char **argv)
     int pid = spawn_process_with_args(buf, sz, path, argc, argv);
     kfree(buf);
     return pid;
+}
+
+static uint64_t sys_execve(uint64_t a1, uint64_t a2, uint64_t a3,
+                           uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    char path[1024];
+    if (copy_path(a1, path, sizeof(path)) == 0)
+        return (uint64_t)-1;
+
+    char argv_store[EXEC_MAX_ARGS][EXEC_STR_MAX];
+    char env_store[EXEC_MAX_ENVS][EXEC_STR_MAX];
+    char *argv[EXEC_MAX_ARGS];
+    char *envp[EXEC_MAX_ENVS];
+    int argc = copy_user_vec((char *const *)a2, EXEC_MAX_ARGS, argv_store, argv);
+    int envc = copy_user_vec((char *const *)a3, EXEC_MAX_ENVS, env_store, envp);
+
+    if (argc == 0)
+    {
+        argv_store[0][0] = 0;
+        size_t i = 0;
+        while (path[i] && i < EXEC_STR_MAX - 1)
+        {
+            argv_store[0][i] = path[i];
+            i++;
+        }
+        argv_store[0][i] = 0;
+        argv[0] = argv_store[0];
+        argc = 1;
+    }
+
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    if (!t)
+        return (uint64_t)-1;
+
+    uint8_t *buf = 0;
+    size_t sz = 0;
+    if (read_exec_file(path, t->cwd, &buf, &sz) != 0)
+        return (uint64_t)-1;
+
+    struct mmu_root *mmu = vmm_new_user_root();
+    if (!mmu)
+    {
+        kfree(buf);
+        return (uint64_t)-1;
+    }
+    uint64_t entry = 0;
+    uint64_t stack_top = 0;
+    if (elf_load(mmu, buf, sz, &entry, &stack_top, argc, argv, envc, envp) < 0)
+    {
+        vmm_free_root(mmu);
+        kfree(buf);
+        return (uint64_t)-1;
+    }
+    kfree(buf);
+
+    for (int i = 0; i < NSIG; i++)
+    {
+        if (t->sig_actions[i].sa_handler != SIG_IGN)
+            t->sig_actions[i].sa_handler = SIG_DFL;
+        t->sig_actions[i].sa_flags = 0;
+        t->sig_actions[i].sa_restorer = 0;
+        t->sig_actions[i].sa_mask = 0;
+    }
+    t->sig_pending = 0;
+
+    if (sched_set_current_image(mmu, (void *)entry, (void *)stack_top,
+                                syscall_uregs.rflags, path) != 0)
+    {
+        vmm_free_root(mmu);
+        return (uint64_t)-1;
+    }
+    return 0;
 }
 
 static const char *kpath_dirs[] = { "/", "/bin", "/Binaries", 0 };
@@ -1444,6 +1598,7 @@ static syscall_fn syscall_table[] = {
     [SYS_MMAP]          = sys_mmap,
     [SYS_UNAME]         = sys_uname,
     [SYS_RELOAD_USERS]  = sys_reload_users,
+    [SYS_EXECVE]        = sys_execve,
 };
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 
