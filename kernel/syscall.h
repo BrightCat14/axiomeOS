@@ -68,6 +68,12 @@
 #define SYS_RELOAD_USERS  57  /* re-parse /etc/passwd (first-boot OOBE) */
 #define SYS_EXECVE        58  /* a1=path, a2=argv, a3=envp */
 
+/* ---- time ---- */
+#define SYS_TIME          59  /* a1 = time_t * (out, may be NULL)               */
+#define SYS_GETTIMEOFDAY  60  /* a1 = struct timeval * (out), a2 = ignored      */
+#define SYS_NANOSLEEP     61  /* a1 = const struct timespec * req,
+                                 a2 = struct timespec * rem (may be NULL)       */
+
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000
 #define S_IFDIR 0x4000

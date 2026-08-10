@@ -12,6 +12,7 @@
 #define MULTIBOOT2_TAG_MEMORY        4
 #define MULTIBOOT2_TAG_MMAP          6
 #define MULTIBOOT2_TAG_FRAMEBUFFER   8
+#define MULTIBOOT2_TAG_EFI64_ST      12  /* EFI 64-bit system table pointer */
 #define MULTIBOOT2_TAG_ACPI_RSDP     14
 #define MULTIBOOT2_TAG_SMBIOS        15
 
@@ -56,6 +57,12 @@ struct multiboot2_tag_acpi_rsdp {
     uint32_t type;
     uint32_t size;
     uint8_t  rsdp[1];
+};
+
+struct multiboot2_tag_efi64_st {
+    uint32_t type;
+    uint32_t size;
+    uint64_t pointer;   /* physical address of EFI system table */
 };
 
 struct multiboot2_tag_smbios {

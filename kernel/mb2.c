@@ -4,6 +4,7 @@
 #include "framebuffer.h"
 #include "mmap.h"
 #include "hal/hal_bootinfo.h"
+#include "rtc_efi.h"
 
 struct mmap_info kernel_mmap;
 uint64_t mmap_max_addr;
@@ -116,6 +117,16 @@ void mb2_parse(unsigned long mb2_info_addr)
 
                 fb_init((uintptr_t)fb->fb_addr, fb->fb_width, fb->fb_height,
                         fb->fb_pitch, fb->fb_bpp, fb->fb_type);
+                break;
+            }
+
+            case MULTIBOOT2_TAG_EFI64_ST:
+            {
+                struct multiboot2_tag_efi64_st *est =
+                    (struct multiboot2_tag_efi64_st *)ptr;
+                printk("MB2 tag: EFI64 system table at 0x%lx\n",
+                       (unsigned long)est->pointer);
+                rtc_efi_set_systable(est->pointer);
                 break;
             }
 
