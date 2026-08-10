@@ -68,9 +68,11 @@ int sched_protected_kill(struct thread *victim, struct thread *killer);
 int sched_is_protected(struct thread *t);
 struct thread *sched_spawn(void (*func)(void*), void *arg, const char *name);
 struct thread *sched_spawn_user_in(struct mmu_root *mmu, void *rip, void *user_rsp,
-                         uint64_t rflags, const char *name,
-                         uint64_t rbx, uint64_t rbp, uint64_t r12,
-                         uint64_t r13, uint64_t r14, uint64_t r15);
+                          uint64_t rflags, const char *name,
+                          uint64_t rbx, uint64_t rbp, uint64_t r12,
+                          uint64_t r13, uint64_t r14, uint64_t r15);
+int sched_set_current_image(struct mmu_root *mmu, void *rip, void *user_rsp,
+                            uint64_t rflags, const char *name);
 void sched_yield(void);
 void sched_exit(int status);
 void sched_suspend(void);

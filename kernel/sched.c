@@ -56,6 +56,87 @@ static void thread_init_vfs(struct thread *t)
     t->caps_eff = t->caps_prm = t->caps_inh = role_caps[ROLE_USER];
 }
 
+static void thread_ref_fd(struct vfs_file *f)
+{
+    if (!f->used || !f->node)
+        return;
+    if (f->kind == FD_VNODE)
+        f->node->refcount++;
+    else if (f->kind == FD_PIPE)
+    {
+        struct pipe *p = (struct pipe *)f->node->priv;
+        if (p)
+        {
+            if (f->node->type == VFS_PIPE_R) p->nreaders++;
+            else if (f->node->type == VFS_PIPE_W) p->nwriters++;
+        }
+        f->node->refcount++;
+    }
+}
+
+static void thread_inherit_vfs(struct thread *t, struct thread *parent)
+{
+    if (!parent)
+        return;
+    for (int i = 0; i < MAX_FD; i++)
+    {
+        t->fds[i] = parent->fds[i];
+        thread_ref_fd(&t->fds[i]);
+    }
+    int i;
+    for (i = 0; parent->cwd[i] && i < 255; i++)
+        t->cwd[i] = parent->cwd[i];
+    t->cwd[i] = 0;
+}
+
+static void thread_close_fds(struct thread *t)
+{
+    for (int i = 0; i < MAX_FD; i++)
+    {
+        struct vfs_file *f = &t->fds[i];
+        if (!f->used)
+            continue;
+        if (f->kind == FD_VNODE)
+            vfs_release(f->node);
+        else if (f->kind == FD_PIPE && f->node)
+        {
+            struct pipe *p = (struct pipe *)f->node->priv;
+            if (p)
+            {
+                if (f->node->type == VFS_PIPE_R) p->nreaders--;
+                else if (f->node->type == VFS_PIPE_W) p->nwriters--;
+            }
+            if (f->node->refcount > 0) f->node->refcount--;
+            if (f->node->refcount == 0) kfree(f->node);
+            if (p)
+            {
+                if (p->shared)
+                {
+                    if (p->dead && p->nreaders == 0 && p->nwriters == 0)
+                    {
+                        if (p->buf) kfree(p->buf);
+                        kfree(p);
+                    }
+                }
+                else if (p->nreaders == 0 && p->nwriters == 0)
+                {
+                    if (p->buf) kfree(p->buf);
+                    kfree(p);
+                }
+                else if (p->wait_reader)
+                {
+                    sched_wake(p->wait_reader);
+                    p->wait_reader = 0;
+                }
+            }
+        }
+        f->used = 0;
+        f->kind = FD_FREE;
+        f->node = 0;
+        f->off = 0;
+    }
+}
+
 /* Initialize a thread to the privileged SYSTEM role (kernel daemons / init).
    Capabilities are unbounded and the VFS permission checks are bypassed. */
 static void thread_set_system(struct thread *t)
@@ -253,6 +334,7 @@ struct thread *sched_spawn_user_in(struct mmu_root *mmu, void *rip, void *user_r
         t->name[i] = name[i];
     t->name[i] = 0;
     thread_init_vfs(t);
+    thread_inherit_vfs(t, current);
 
     /* Inherit the full security context from the spawning (parent) thread.
        fork: child == parent context. spawn: child inherits unless a SYSTEM
@@ -286,6 +368,28 @@ struct thread *sched_spawn_user_in(struct mmu_root *mmu, void *rip, void *user_r
 
     klog("Sched: spawned user thread '%s' pid=%d rsp=0x%lx\n", t->name, t->pid, t->rsp);
     return t;
+}
+
+int sched_set_current_image(struct mmu_root *mmu, void *rip, void *user_rsp,
+                            uint64_t rflags, const char *name)
+{
+    struct thread *t = current;
+    if (!t || !t->syscall_iret)
+        return -1;
+    struct mmu_root *old = t->mmu;
+    t->mmu = mmu;
+    t->user_rsp = (uint64_t)user_rsp;
+    t->syscall_iret[0] = (uint64_t)rip;
+    t->syscall_iret[2] = rflags;
+    t->syscall_iret[3] = (uint64_t)user_rsp;
+    int i;
+    for (i = 0; name[i] && i < 15; i++)
+        t->name[i] = name[i];
+    t->name[i] = 0;
+    vmm_switch(mmu);
+    if (old && old != mmu && old != vmm_kernel_root())
+        vmm_free_root(old);
+    return 0;
 }
 
 static void reap_zombies(void)
@@ -353,6 +457,7 @@ void sched_exit(int status)
     struct thread *self = current;
     self->state = THREAD_ZOMBIE;
     self->exit_status = status;
+    thread_close_fds(self);
     klog("Sched: '%s' (pid=%d) exiting status=%d\n", self->name, self->pid, status);
 
     if (self == g_init_thread)
