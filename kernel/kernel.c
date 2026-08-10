@@ -4,6 +4,8 @@
 #include "framebuffer.h"
 #include "pmm.h"
 #include "apic.h"
+#include "clock.h"
+#include "rtc_efi.h"
 #include "tss.h"
 #include "ioapic.h"
 #include "keyboard.h"
@@ -155,7 +157,13 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     tss_init();
     isr_init();
+    /* Map EFI runtime services pages and read GetTime() now that the IDT is
+       live and vmm_mmap_phys() is available.  Must be before hal_timer_start()
+       changes any APIC state, and well before IRQs are enabled. */
+    rtc_efi_init();
     hal_timer_start(0x10000);
+    /* Start the periodic timer at the calibrated 1 ms period (count=0). */
+    apic_timer_start(0);
     ioapic_init();
     keyboard_init();
     tty_init();
@@ -204,6 +212,53 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
     uint64_t yield_count = 0;
     printk("APIC: tick");
     hal_cpu_irq_enable();
+
+    /* Post-IRQ calibration: count timer ISR firings over a PIT busy-wait.
+       This must run after IRQs are enabled and the periodic timer is firing. */
+    apic_calibrate_post_irq();
+
+    /* Determine boot epoch:
+       1. Try EFI runtime services GetTime() — precise UTC from firmware RTC.
+       2. Fall back to BUILD_TIME_UNIX (compile-time timestamp) if EFI
+          is unavailable or returns an error. */
+    uint64_t boot_unix = rtc_efi_get_unix();
+    if (boot_unix == 0)
+    {
+        boot_unix = BUILD_TIME_UNIX;
+        printk("Clock: EFI time unavailable, using build timestamp\n");
+    }
+    else
+    {
+        printk("Clock: using EFI RTC time\n");
+    }
+
+    /* Read timezone offset from /System/Configuration/timezone.
+       File format: a single signed integer, seconds east of UTC (e.g. "10800").
+       Falls back to the build-host offset (BUILD_TZ_OFFSET_SEC) if absent. */
+    int64_t tz_offset = (int64_t)BUILD_TZ_OFFSET_SEC;
+    {
+        uint8_t *tz_buf = 0;
+        size_t   tz_len = 0;
+        if (vfs_read_file("/System/Configuration/timezone", &tz_buf, &tz_len) == 0
+            && tz_buf && tz_len > 0)
+        {
+            int64_t v = 0;
+            int neg = 0;
+            size_t i = 0;
+            if (tz_buf[i] == '-') { neg = 1; i++; }
+            else if (tz_buf[i] == '+') { i++; }
+            for (; i < tz_len && tz_buf[i] >= '0' && tz_buf[i] <= '9'; i++)
+                v = v * 10 + (tz_buf[i] - '0');
+            tz_offset = neg ? -v : v;
+            kfree(tz_buf);
+            printk("Clock: timezone from config: %ld s\n", (long)tz_offset);
+        }
+        else
+        {
+            printk("Clock: timezone from build default: %ld s\n", (long)tz_offset);
+        }
+    }
+    clock_init(boot_unix, tz_offset);
 
     klog_flush();
 

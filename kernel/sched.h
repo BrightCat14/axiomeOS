@@ -48,6 +48,10 @@ struct thread {
     /* Signal delivery: iret frame of the in-progress syscall (per-thread). */
     uint64_t *syscall_iret;
 
+    /* Timed sleep: monotonic ns deadline set by sched_sleep_ns().
+       Zero means no active sleep.  Checked in sched_tick(). */
+    uint64_t sleep_deadline_ns;
+
     /* Per-process security context (user rank system). */
     uid_t uid;          /* real uid */
     uid_t euid;         /* effective uid */
@@ -77,6 +81,7 @@ void sched_yield(void);
 void sched_exit(int status);
 void sched_suspend(void);
 void sched_wake(struct thread *t);
+void sched_sleep_ns(uint64_t ns);
 void sched_tick(void);
 struct thread *sched_current(void);
 int sched_new_pid(void);

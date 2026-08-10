@@ -66,6 +66,12 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 #define SYS_RELOAD_USERS  57
 #define SYS_EXECVE        58
 
+/* ---- time ---- */
+#define SYS_TIME          59  /* a1 = time_t * (out, may be NULL)          */
+#define SYS_GETTIMEOFDAY  60  /* a1 = struct timeval *, a2 = ignored       */
+#define SYS_NANOSLEEP     61  /* a1 = const struct timespec * req,
+                                 a2 = struct timespec * rem (may be NULL)  */
+
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
 #define O_WRONLY  0x0001

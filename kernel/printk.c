@@ -70,7 +70,6 @@ void console_write(const char *s)
         console_putchar(*s++);
 }
 
-static void print_dec(unsigned long val, void (*putch)(char));
 static void print_hex(unsigned long val, int upper, void (*putch)(char));
 
 static void emit(const char *fmt, va_list ap, void (*putch)(char))
@@ -83,34 +82,88 @@ static void emit(const char *fmt, va_list ap, void (*putch)(char))
             continue;
         }
         p++;
+
+        /* Flags */
+        int zero_pad = 0;
+        if (*p == '0') { zero_pad = 1; p++; }
+
+        /* Width */
+        int width = 0;
+        while (*p >= '0' && *p <= '9')
+        {
+            width = width * 10 + (*p - '0');
+            p++;
+        }
+
         int long_mod = 0;
         while (*p == 'l')
         {
             long_mod = 1;
             p++;
         }
+
         switch (*p)
         {
             case 'd':
             case 'i':
-                if (long_mod)
-                    print_dec(va_arg(ap, unsigned long), putch);
-                else
-                    print_dec(va_arg(ap, int), putch);
-                break;
             case 'u':
+            {
+                unsigned long val;
+                int is_signed = (*p == 'd' || *p == 'i');
+                long sval = 0;
                 if (long_mod)
-                    print_dec(va_arg(ap, unsigned long), putch);
+                    val = va_arg(ap, unsigned long);
+                else if (is_signed)
+                    val = (unsigned long)(sval = (long)(int)va_arg(ap, int));
                 else
-                    print_dec(va_arg(ap, unsigned int), putch);
+                    val = (unsigned long)(unsigned int)va_arg(ap, unsigned int);
+
+                /* Handle negative signed values */
+                int neg = (is_signed && (long)val < 0);
+                if (neg) val = (unsigned long)(-(long)val);
+
+                /* Render digits into a small buffer */
+                char buf[24];
+                int  len = 0;
+                if (val == 0) { buf[len++] = '0'; }
+                else {
+                    unsigned long tmp = val;
+                    while (tmp) { buf[len++] = (char)('0' + tmp % 10); tmp /= 10; }
+                    /* reverse */
+                    for (int i = 0, j = len-1; i < j; i++, j--)
+                    { char t = buf[i]; buf[i] = buf[j]; buf[j] = t; }
+                }
+
+                int total = len + (neg ? 1 : 0);
+                if (neg && zero_pad) putch('-');
+                for (int i = total; i < width; i++)
+                    putch(zero_pad ? '0' : ' ');
+                if (neg && !zero_pad) putch('-');
+                for (int i = 0; i < len; i++) putch(buf[i]);
                 break;
+            }
             case 'x':
             case 'X':
-                if (long_mod)
-                    print_hex(va_arg(ap, unsigned long), *p == 'X', putch);
-                else
-                    print_hex(va_arg(ap, unsigned int), *p == 'X', putch);
+            {
+                unsigned long val = long_mod
+                    ? va_arg(ap, unsigned long)
+                    : (unsigned long)(unsigned int)va_arg(ap, unsigned int);
+
+                char buf[18];
+                int  len = 0;
+                const char *digits = (*p == 'X') ? "0123456789ABCDEF"
+                                                  : "0123456789abcdef";
+                if (val == 0) { buf[len++] = '0'; }
+                else {
+                    unsigned long tmp = val;
+                    while (tmp) { buf[len++] = digits[tmp & 0xF]; tmp >>= 4; }
+                    for (int i = 0, j = len-1; i < j; i++, j--)
+                    { char t = buf[i]; buf[i] = buf[j]; buf[j] = t; }
+                }
+                for (int i = len; i < width; i++) putch(zero_pad ? '0' : ' ');
+                for (int i = 0; i < len; i++) putch(buf[i]);
                 break;
+            }
             case 'p':
                 putch('0'); putch('x');
                 print_hex(va_arg(ap, unsigned long), 0, putch);
@@ -118,8 +171,11 @@ static void emit(const char *fmt, va_list ap, void (*putch)(char))
             case 's':
             {
                 const char *s = va_arg(ap, const char *);
-                while (*s)
-                    putch(*s++);
+                if (!s) s = "(null)";
+                int len = 0;
+                for (const char *q = s; *q; q++) len++;
+                for (int i = len; i < width; i++) putch(' ');
+                while (*s) putch(*s++);
                 break;
             }
             case 'c':
@@ -157,22 +213,6 @@ void klog(const char *fmt, ...)
     va_start(ap, fmt);
     emit(fmt, ap, put_serial);
     va_end(ap);
-}
-
-static void print_dec(unsigned long val, void (*putch)(char))
-{
-    char buf[24];
-    int i = sizeof(buf) - 1;
-    buf[i] = '\0';
-    if (val == 0)
-        buf[--i] = '0';
-    while (val)
-    {
-        buf[--i] = '0' + (val % 10);
-        val /= 10;
-    }
-    while (*(buf + i))
-        putch(buf[i++]);
 }
 
 static void print_hex(unsigned long val, int upper, void (*putch)(char))

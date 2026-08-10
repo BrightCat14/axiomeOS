@@ -5,27 +5,18 @@
 /* Static storage for localtime/gmtime results */
 static struct tm _tm_buf;
 
-/* Stub implementation - returns 0 until kernel support is added */
 time_t time(time_t *tloc)
 {
-    /* TODO: Add SYS_TIME syscall to kernel */
-    time_t t = 0;
+    long t = syscall(SYS_TIME, (long)tloc, 0, 0, 0, 0, 0);
     if (tloc)
-        *tloc = t;
-    return t;
+        *tloc = (time_t)t;
+    return (time_t)t;
 }
 
-/* Stub implementation - returns 0 until kernel support is added */
 int gettimeofday(struct timeval *tv, void *tz)
 {
     (void)tz;
-    /* TODO: Add SYS_GETTIMEOFDAY syscall to kernel */
-    if (tv)
-    {
-        tv->tv_sec = 0;
-        tv->tv_usec = 0;
-    }
-    return 0;
+    return (int)syscall(SYS_GETTIMEOFDAY, (long)tv, 0, 0, 0, 0, 0);
 }
 
 /* Basic implementation - assumes UNIX epoch */
@@ -146,23 +137,22 @@ char *ctime(const time_t *timep)
     return asctime(localtime(timep));
 }
 
-/* Sleep functions - use sys_yield in a loop for now */
+/* Sleep functions */
 unsigned int sleep(unsigned int seconds)
 {
-    /* TODO: Add proper SYS_SLEEP or SYS_NANOSLEEP syscall */
-    /* For now, yield repeatedly (very inefficient) */
-    for (unsigned int i = 0; i < seconds * 100; i++)
-        sys_yield();
+    struct timespec req;
+    req.tv_sec  = (long)seconds;
+    req.tv_nsec = 0;
+    syscall(SYS_NANOSLEEP, (long)&req, 0, 0, 0, 0, 0);
     return 0;
 }
 
 int usleep(unsigned int usec)
 {
-    /* TODO: Add proper SYS_NANOSLEEP syscall */
-    /* For now, yield repeatedly (very inefficient) */
-    for (unsigned int i = 0; i < usec / 10000; i++)
-        sys_yield();
-    return 0;
+    struct timespec req;
+    req.tv_sec  = (long)(usec / 1000000);
+    req.tv_nsec = (long)((usec % 1000000) * 1000);
+    return (int)syscall(SYS_NANOSLEEP, (long)&req, 0, 0, 0, 0, 0);
 }
 
 int nanosleep(const struct timespec *req, struct timespec *rem)
@@ -172,17 +162,5 @@ int nanosleep(const struct timespec *req, struct timespec *rem)
         errno = EFAULT;
         return -1;
     }
-    
-    /* TODO: Add SYS_NANOSLEEP syscall */
-    /* For now, use sleep approximation */
-    sleep((unsigned int)req->tv_sec);
-    usleep((unsigned int)(req->tv_nsec / 1000));
-    
-    if (rem)
-    {
-        rem->tv_sec = 0;
-        rem->tv_nsec = 0;
-    }
-    
-    return 0;
+    return (int)syscall(SYS_NANOSLEEP, (long)req, (long)rem, 0, 0, 0, 0);
 }

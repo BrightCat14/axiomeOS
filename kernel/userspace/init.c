@@ -2,6 +2,7 @@
 #include "syscall.h"
 #include "stdlib.h"
 #include "string.h"
+#include "time.h"
 
 /* ===========================================================================
  * axiome-init - the system init (PID 1) and service manager.
@@ -343,16 +344,15 @@ static void start_all(void)
 
 /* -------------------------------------------------------- supervision loop */
 
-/* Bounded backoff between restarts. There is no clock syscall exposed to
-   userspace, and sys_yield switches to other (potentially disk-bound) threads,
-   so we keep this short. The real crash-loop protection is the maxfail counter
-   in on_child_exit, not wall-clock delay. */
+/* Bounded backoff between restarts: sleep 100ms * restarts, capped at 4s. */
 static void backoff(int restarts)
 {
-    int iters = restarts * 50;
-    if (iters > 400) iters = 400;
-    for (volatile int i = 0; i < iters; i++)
-        sys_yield();
+    long ms = restarts * 100;
+    if (ms > 4000) ms = 4000;
+    struct timespec ts;
+    ts.tv_sec  = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000L;
+    nanosleep(&ts, 0);
 }
 
 /* Handle a child that exited: decide whether to restart, applying the policy
