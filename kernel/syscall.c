@@ -407,7 +407,7 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     (void)a3; (void)a4; (void)a5;
     char path[1024];
     if (copy_path(a1, path, sizeof(path)) == 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EFAULT;
     int flags = (int)a2;
     vfs_ensure_proc();
     struct thread *t = sched_current();
@@ -416,10 +416,10 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     if (n && n->type == VFS_FIFO)
     {
         struct pipe *p = (struct pipe *)n->priv;
-        if (!p) { vfs_release(n); return (uint64_t)-1; }
+        if (!p) { vfs_release(n); return (uint64_t)-EBADF; }
         int is_write = (flags & O_WRONLY) ? 1 : 0;
         struct vnode *end = kmalloc(sizeof(struct vnode));
-        if (!end) { vfs_release(n); return (uint64_t)-1; }
+        if (!end) { vfs_release(n); return (uint64_t)-ENOMEM; }
         memset(end, 0, sizeof(*end));
         end->type = is_write ? VFS_PIPE_W : VFS_PIPE_R;
         end->priv = p;
@@ -431,7 +431,7 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
         {
             if (is_write) p->nwriters--; else p->nreaders--;
             kfree(end);
-            return (uint64_t)-1;
+            return (uint64_t)-ENOMEM;
         }
         t->fds[fd].used = 1; t->fds[fd].kind = FD_PIPE;
         t->fds[fd].node = end; t->fds[fd].off = 0;
@@ -440,7 +440,10 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     if (n)
     {
         if (n->type == VFS_DIR)
-            return (uint64_t)-1;
+        {
+            vfs_release(n);
+            return (uint64_t)-EISDIR;
+        }
         if (flags & O_TRUNC)
         {
             if (n->data) kfree(n->data);
@@ -452,19 +455,20 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     else
     {
         if (!(flags & O_CREAT))
-            return (uint64_t)-1;
+            return (uint64_t)-ENOENT;
         if (vfs_create(path, VFS_FILE, t->cwd) != 0)
-            return (uint64_t)-1;
+            return (uint64_t)-EACCES;
         n = vfs_lookup(path, t->cwd);
         if (!n)
-            return (uint64_t)-1;
+            return (uint64_t)-EIO;
     }
 
-    int fd = -1;
-    for (int i = 0; i < MAX_FD; i++)
-        if (!t->fds[i].used) { fd = i; break; }
+    int fd = fd_alloc(t);
     if (fd < 0)
-        return (uint64_t)-1;
+    {
+        vfs_release(n);
+        return (uint64_t)-ENOMEM;
+    }
     t->fds[fd].used = 1;
     t->fds[fd].kind = FD_VNODE;
     t->fds[fd].node = n;
@@ -529,11 +533,14 @@ static uint64_t sys_mkdir(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     (void)a2; (void)a3; (void)a4; (void)a5;
     char path[1024];
     if (copy_path(a1, path, sizeof(path)) == 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EFAULT;
     vfs_ensure_proc();
     struct thread *t = sched_current();
+    /* Check if it already exists */
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (n) { vfs_release(n); return (uint64_t)-EEXIST; }
     if (vfs_create(path, VFS_DIR, t->cwd) != 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EACCES;
     return 0;
 }
 
@@ -542,11 +549,21 @@ static uint64_t sys_unlink(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, u
     (void)a2; (void)a3; (void)a4; (void)a5;
     char path[1024];
     if (copy_path(a1, path, sizeof(path)) == 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EFAULT;
     vfs_ensure_proc();
     struct thread *t = sched_current();
+    /* Check existence and type first */
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (!n)
+        return (uint64_t)-ENOENT;
+    if (n->type == VFS_DIR)
+    {
+        vfs_release(n);
+        return (uint64_t)-EISDIR;
+    }
+    vfs_release(n);
     if (vfs_remove(path, t->cwd) != 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EACCES;
     return 0;
 }
 
@@ -555,23 +572,34 @@ static uint64_t sys_readdir(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, 
     (void)a4; (void)a5;
     char path[1024];
     if (copy_path(a1, path, sizeof(path)) == 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EFAULT;
     struct vfs_dirent *uents = (struct vfs_dirent *)a2;
     int max = (int)a3;
     vfs_ensure_proc();
     struct thread *t = sched_current();
+
+    /* Verify the path exists and is a directory */
+    struct vnode *dn = vfs_lookup(path, t->cwd);
+    if (!dn)
+        return (uint64_t)-ENOENT;
+    if (dn->type != VFS_DIR)
+    {
+        vfs_release(dn);
+        return (uint64_t)-ENOTDIR;
+    }
+    vfs_release(dn);
 
     int cap = max;
     if (cap < 1) cap = 1;
     if (cap > 1024) cap = 1024;
     struct vfs_dirent *kbuf = kmalloc(sizeof(struct vfs_dirent) * cap);
     if (!kbuf)
-        return (uint64_t)-1;
+        return (uint64_t)-ENOMEM;
     int count = vfs_list(path, t->cwd, kbuf, cap);
     if (count < 0)
     {
         kfree(kbuf);
-        return (uint64_t)-1;
+        return (uint64_t)-EIO;
     }
     int tocopy = count;
     if (tocopy > max) tocopy = max;
@@ -587,14 +615,16 @@ static uint64_t sys_chdir(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     (void)a2; (void)a3; (void)a4; (void)a5;
     char path[1024];
     if (copy_path(a1, path, sizeof(path)) == 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EFAULT;
     vfs_ensure_proc();
     struct thread *t = sched_current();
     struct vnode *n = vfs_lookup(path, t->cwd);
-    if (!n || n->type != VFS_DIR)
+    if (!n)
+        return (uint64_t)-ENOENT;
+    if (n->type != VFS_DIR)
     {
-        if (n) vfs_release(n);
-        return (uint64_t)-1;
+        vfs_release(n);
+        return (uint64_t)-ENOTDIR;
     }
     char abs[1024];
     make_abs(path, t->cwd, abs, sizeof(abs));
@@ -626,13 +656,15 @@ static uint64_t sys_fstat(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     (void)a3; (void)a4; (void)a5;
     int fd = (int)a1;
     struct stat *ust = (struct stat *)a2;
+    if (!ust)
+        return (uint64_t)-EFAULT;
     vfs_ensure_proc();
     struct thread *t = sched_current();
     if (fd < 0 || fd >= MAX_FD || !t->fds[fd].used)
-        return (uint64_t)-1;
+        return (uint64_t)-EBADF;
     struct vfs_file *f = &t->fds[fd];
     if (f->kind != FD_VNODE || !f->node)
-        return (uint64_t)-1;
+        return (uint64_t)-EBADF;
     struct vnode *n = f->node;
     struct stat st;
     st.st_size = (uint64_t)n->size;
@@ -724,11 +756,13 @@ static uint64_t sys_mkfifo(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, u
     (void)a2; (void)a3; (void)a4; (void)a5;
     char path[1024];
     if (copy_path(a1, path, sizeof(path)) == 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EFAULT;
     vfs_ensure_proc();
     struct thread *t = sched_current();
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (n) { vfs_release(n); return (uint64_t)-EEXIST; }
     if (vfs_create(path, VFS_FIFO, t->cwd) != 0)
-        return (uint64_t)-1;
+        return (uint64_t)-EACCES;
     return 0;
 }
 
