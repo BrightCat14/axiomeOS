@@ -66,6 +66,7 @@
 /* ---- system info ---- */
 #define SYS_UNAME         56  /* a1 = struct utsname * (userspace ptr) */
 #define SYS_RELOAD_USERS  57  /* re-parse /etc/passwd (first-boot OOBE) */
+#define SYS_EXECVE        58  /* a1=path, a2=argv, a3=envp */
 
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000

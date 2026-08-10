@@ -52,7 +52,8 @@ struct elf64_phdr {
 struct mmu_root;
 
 int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
-              uint64_t *entry, uint64_t *stack_top, int argc, char **argv);
+              uint64_t *entry, uint64_t *stack_top, int argc, char **argv,
+              int envc, char **envp);
 
 int exec_user_program(const uint8_t *elf, size_t size, const char *name);
 int spawn_process_with_args(const uint8_t *elf, size_t size, const char *name,

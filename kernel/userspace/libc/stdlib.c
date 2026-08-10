@@ -7,6 +7,8 @@
 static unsigned char heap[HEAP_SIZE];
 static unsigned long heap_off = 0;
 
+char **environ;
+
 void *malloc(size_t n)
 {
     if (n == 0)
@@ -86,4 +88,21 @@ void exit(int status)
     syscall(SYS_EXIT, status, 0, 0, 0, 0, 0);
     for (;;)
         __asm__ volatile ("hlt");
+}
+
+char *getenv(const char *name)
+{
+    if (!name || !*name || !environ)
+        return 0;
+    size_t namelen = 0;
+    while (name[namelen]) namelen++;
+    for (char **p = environ; *p; p++)
+    {
+        const char *e = *p;
+        size_t i = 0;
+        while (i < namelen && e[i] == name[i]) i++;
+        if (i == namelen && e[i] == '=')
+            return (char *)(e + i + 1);
+    }
+    return 0;
 }

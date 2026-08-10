@@ -13,10 +13,9 @@
  *   * log service lifecycle events
  *
  * Design notes (this is a minimal, single-threaded OS):
- *   * Children are spawned with sys_spawn_cmd(); the kernel resets a fresh
- *     fd table for each new process, so init cannot redirect a child's
- *     stdout/stderr. Services therefore log to their own files; axiome-init
- *     records *lifecycle* events (start/exit/restart/fail) centrally.
+ *   * Children are spawned with sys_spawn_cmd(); descriptors and cwd now
+ *     inherit like fork/exec, but axiome-init still keeps service logging
+ *     explicit so lifecycle messages stay separate from service output.
  *   * Reaping uses the kernel's blocking sys_waitpid(-1). When a child exits
  *     the scheduler wakes init, so this is an efficient idle/supervise loop.
  *   * PID 1 is auto-respawned by the kernel if it exits, so axiome-init must

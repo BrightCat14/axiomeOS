@@ -117,6 +117,10 @@ long sys_spawn_cmd(const char *cmdline, size_t len)
 {
     return syscall(SYS_SPAWN_CMD, (long)cmdline, (long)len, 0, 0, 0, 0);
 }
+int execve(const char *path, char *const argv[], char *const envp[])
+{
+    return (int)syscall(SYS_EXECVE, (long)path, (long)argv, (long)envp, 0, 0, 0);
+}
 long sys_waitpid(int pid, int *status)
 {
     return syscall(SYS_WAITPID, (long)pid, (long)status, 0, 0, 0, 0);
