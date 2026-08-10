@@ -6,18 +6,6 @@
 
 #define TTY_LINE_MAX 512
 
-/* Special key codes from keyboard driver */
-#define KEY_UP    0x100
-#define KEY_DOWN  0x101
-#define KEY_LEFT  0x102
-#define KEY_RIGHT 0x103
-#define KEY_HOME  0x104
-#define KEY_END   0x105
-#define KEY_PGUP  0x106
-#define KEY_PGDN  0x107
-#define KEY_INSERT 0x108
-#define KEY_DELETE 0x109
-
 static spinlock_t tty_lock = SPINLOCK_INIT;
 static char tty_line[TTY_LINE_MAX];
 static int  tty_len;
@@ -53,7 +41,7 @@ static void send_escape(const char *seq)
     tty_ready = 1;
 }
 
-void tty_input_char(char c)
+void tty_input_char(int c)
 {
     unsigned long flags = spin_lock_irq(&tty_lock);
 
@@ -61,16 +49,16 @@ void tty_input_char(char c)
     if (c >= 0x100) {
         /* Arrow keys and special keys - send as escape sequences */
         switch (c) {
-        case KEY_UP:    send_escape("\033[A"); break;
-        case KEY_DOWN:  send_escape("\033[B"); break;
-        case KEY_RIGHT: send_escape("\033[C"); break;
-        case KEY_LEFT:  send_escape("\033[D"); break;
-        case KEY_HOME:  send_escape("\033[H"); break;
-        case KEY_END:   send_escape("\033[F"); break;
-        case KEY_PGUP:  send_escape("\033[5~"); break;
-        case KEY_PGDN:  send_escape("\033[6~"); break;
-        case KEY_INSERT: send_escape("\033[2~"); break;
-        case KEY_DELETE: send_escape("\033[3~"); break;
+        case TTY_KEY_UP:    send_escape("\033[A"); break;
+        case TTY_KEY_DOWN:  send_escape("\033[B"); break;
+        case TTY_KEY_RIGHT: send_escape("\033[C"); break;
+        case TTY_KEY_LEFT:  send_escape("\033[D"); break;
+        case TTY_KEY_HOME:  send_escape("\033[H"); break;
+        case TTY_KEY_END:   send_escape("\033[F"); break;
+        case TTY_KEY_PGUP:  send_escape("\033[5~"); break;
+        case TTY_KEY_PGDN:  send_escape("\033[6~"); break;
+        case TTY_KEY_INSERT: send_escape("\033[2~"); break;
+        case TTY_KEY_DELETE: send_escape("\033[3~"); break;
         default: break;
         }
         spin_unlock_irq(&tty_lock, flags);

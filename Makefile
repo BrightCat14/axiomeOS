@@ -26,7 +26,7 @@ DISK_PATH := $(BUILD_DIR)/disk.img
 # of them changes (a userspace .elf or a .kxt), the ROOT partition rebuilds.
 MANIFEST_BINS := $(shell sed -n 's/.*[[:space:]]bin:\([^[:space:]]*\).*/\1/p' root_manifest.txt)
 
-.PHONY: all kernel iso run run-fb debug clean distclean install disk.img
+.PHONY: all kernel iso run run-fb run-usb debug test-hid clean distclean install disk.img
 
 all: iso
 
@@ -103,6 +103,21 @@ run-fb: iso disk.img
 		-cdrom $(BUILD_DIR)/axiome.iso \
 		-drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide,index=0,media=disk \
 		-m 512M -serial stdio -vga std -display sdl
+
+run-usb: iso disk.img
+	qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
+		-cdrom $(BUILD_DIR)/axiome.iso \
+		-drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide,index=0,media=disk \
+		-m 512M -serial stdio -display sdl \
+		-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
+		-device usb-mouse,bus=xhci.0
+
+test-hid:
+	@mkdir -p $(BUILD_DIR)/tests
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
+		-I$(REPO_ROOT)/kernel -o $(BUILD_DIR)/tests/hid_boot_test \
+		tests/hid_boot_test.c kernel/hid_boot.c
+	$(BUILD_DIR)/tests/hid_boot_test
 
 debug: iso disk.img
 	qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
