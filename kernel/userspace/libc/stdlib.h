@@ -4,6 +4,8 @@
 #include <stddef.h>
 
 void *malloc(size_t n);
+void *calloc(size_t nmemb, size_t size);
+void *realloc(void *ptr, size_t size);
 void free(void *p);
 int atoi(const char *s);
 long atol(const char *s);

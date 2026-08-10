@@ -11,5 +11,13 @@ extern int errno;
 #define ESRCH  3
 #define EFAULT 14
 #define EACCES 13
+#define EEXIST 17
+#define ENOTDIR 20
+#define EISDIR 21
+#define EBADF  9
+#define EIO    5
+
+/* perror - print error message to stderr */
+void perror(const char *s);
 
 #endif

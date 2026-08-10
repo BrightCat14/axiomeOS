@@ -17,6 +17,13 @@ long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
                       : "r"(r0), "r"(r1), "r"(r2), "r"(r3),
                         "r"(r4), "r"(r5), "r"(r6)
                       : "%rcx", "%r11", "memory");
+    
+    /* Handle negative errno values from kernel */
+    if (ret < 0 && ret >= -4095)
+    {
+        errno = (int)(-ret);
+        return -1;
+    }
     return ret;
 }
 
