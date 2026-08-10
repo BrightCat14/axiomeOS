@@ -82,11 +82,19 @@ extern const uint64_t role_caps[NROLES];
 #define S_IXOTH  00001
 
 /* ---- errno values used by security/VFS paths ---- */
-#define EPERM   1
-#define ENOENT  2
-#define EFAULT  14
-#define ESRCH   3
-#define EACCES  13
+#define EPERM    1
+#define ENOENT   2
+#define ESRCH    3
+#define EIO      5
+#define EBADF    9
+#define ENOMEM   12
+#define EACCES   13
+#define EFAULT   14
+#define EEXIST   17
+#define ENOTDIR  20
+#define EISDIR   21
+#define EINVAL   22
+#define ENOSYS   38
 
 /* ---- user database (parsed from /etc/passwd) ---- */
 #define MAX_USERS 64
