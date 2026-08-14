@@ -31,9 +31,25 @@ int vmm_unmap_page(uint64_t virt)
     return mmu_unmap(0, virt);
 }
 
+int vmm_protect_page(struct mmu_root *root, uint64_t virt, uint32_t flags)
+{
+    return mmu_protect(root, virt, flags);
+}
+
+int vmm_check_user_range(struct mmu_root *root, uint64_t virt, size_t len,
+                         int write)
+{
+    return mmu_check_user_range(root, virt, len, write);
+}
+
 uint64_t vmm_virt_to_phys(uint64_t virt)
 {
     return mmu_virt_to_phys(0, virt);
+}
+
+uint64_t vmm_virt_to_phys_in(struct mmu_root *root, uint64_t virt)
+{
+    return mmu_virt_to_phys(root, virt);
 }
 
 int vmm_map_range(uint64_t virt, uint64_t phys, size_t pages, uint32_t flags)
