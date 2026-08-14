@@ -37,31 +37,6 @@ static const char *exception_names[] = {
 
 void isr_handler(struct isr_frame *frame)
 {
-    if (frame->int_no == 14)
-    {
-        unsigned long cr2 = (unsigned long)hal_cpu_fault_address();
-        int user = (frame->cs & 3) != 0;
-
-        if (!(frame->err_code & 1))
-        {
-            uint64_t page = (uint64_t)pmm_alloc_frame();
-            if (page)
-            {
-                uint32_t flags = MMU_WRITE;
-                if (user)
-                    flags |= MMU_USER;
-                if (!user || cr2 >= USERSPACE_BASE)
-                {
-                    struct thread *cur = sched_current();
-                    struct mmu_root *root = cur ? cur->mmu : vmm_kernel_root();
-                    if (vmm_map_page_in(root, cr2 & ~0xFFF, page, flags) == 0)
-                        return;
-                }
-                pmm_free_frame((void*)page);
-            }
-        }
-    }
-
     if (frame->int_no < 32)
     {
         const char *name = exception_names[frame->int_no];

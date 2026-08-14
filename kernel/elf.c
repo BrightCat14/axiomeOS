@@ -4,6 +4,15 @@
 #include "pmm.h"
 #include "sched.h"
 #include "string.h"
+#include "slab.h"
+
+/* Bounds on how many user pages one image may claim, so the per-page
+   protection bookkeeping stays small even for hostile headers. */
+#define ELF_MAX_SEG_PAGES (1u << 20)
+
+/* Per-page coverage bits used to derive W^X protections. */
+#define SEG_COVER_W 1
+#define SEG_COVER_X 2
 
 static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
                             int argc, char **argv, int envc, char **envp,
@@ -69,6 +78,48 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
         return -1;
     }
 
+    /* Compute the union of all PT_LOAD pages so per-page protections can be
+       applied. A page shared by an executable and a writable segment must
+       stay writable, and therefore non-executable. */
+    uint64_t span_lo = UINT64_MAX;
+    uint64_t span_hi = 0;
+    for (uint16_t i = 0; i < h->e_phnum; i++)
+    {
+        if (ph[i].p_type != PT_LOAD)
+            continue;
+        uint64_t vlo = ph[i].p_vaddr & ~0xFFFULL;
+        uint64_t vhi = (ph[i].p_vaddr + ph[i].p_memsz + 0xFFFULL) & ~0xFFFULL;
+        if (vlo < span_lo) span_lo = vlo;
+        if (vhi > span_hi) span_hi = vhi;
+    }
+    uint64_t span_pages = (span_hi - span_lo) / PAGE_SIZE;
+    if (span_pages > ELF_MAX_SEG_PAGES)
+    {
+        printk("ELF: segment span too large (%lu pages)\n",
+               (unsigned long)span_pages);
+        return -1;
+    }
+    uint8_t *cover = kmalloc(span_pages ? span_pages : 1);
+    if (!cover)
+        return -1;
+    __builtin_memset(cover, 0, span_pages);
+
+    for (uint16_t i = 0; i < h->e_phnum; i++)
+    {
+        if (ph[i].p_type != PT_LOAD)
+            continue;
+        uint64_t vstart = ph[i].p_vaddr & ~0xFFFULL;
+        uint64_t vend   = (ph[i].p_vaddr + ph[i].p_memsz + 0xFFFULL) & ~0xFFFULL;
+        for (uint64_t va = vstart; va < vend; va += PAGE_SIZE)
+        {
+            uint64_t idx = (va - span_lo) / PAGE_SIZE;
+            if (ph[i].p_flags & PF_W)
+                cover[idx] |= SEG_COVER_W;
+            if (ph[i].p_flags & PF_X)
+                cover[idx] |= SEG_COVER_X;
+        }
+    }
+
     /* The new address space owns these user mappings, but it is not yet the
        active page table. Switch to it so writes to the user virtual addresses
        land in the correct frames. */
@@ -87,24 +138,25 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
         uint64_t memsz  = ph[i].p_memsz;
         uint64_t offset = ph[i].p_offset;
 
-        uint32_t flags = MMU_USER | MMU_WRITE;
-        if (!(ph[i].p_flags & PF_X))
-            flags |= MMU_NX;
-
         uint64_t vstart = vaddr & ~0xFFFULL;
         uint64_t vend   = (vaddr + memsz + 0xFFFULL) & ~0xFFFULL;
         uint64_t pages  = (vend - vstart) / PAGE_SIZE;
 
         for (uint64_t p = 0; p < pages; p++)
         {
-            uint64_t va   = vstart + p * PAGE_SIZE;
+            uint64_t va = vstart + p * PAGE_SIZE;
+            if (vmm_virt_to_phys_in(mmu, va) != 0)
+                continue;   /* page shared with a previous segment */
+
             uint64_t phys = (uint64_t)pmm_alloc_frame();
             if (!phys)
             {
                 printk("ELF: OOM mapping 0x%lx\n", va);
                 goto fail;
             }
-            if (vmm_map_page_in(mmu, va, phys, flags) < 0)
+            /* Map writable temporarily so image bytes can be copied in; the
+               final W^X protections are applied after all segments load. */
+            if (vmm_map_page_in(mmu, va, phys, MMU_USER | MMU_WRITE) < 0)
             {
                 pmm_free_frame((void *)phys);
                 printk("ELF: map failed 0x%lx\n", va);
@@ -136,29 +188,54 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
             highest = seg_end;
     }
 
+    /* Apply final per-page protections (W^X). Writable pages are never
+       executable; executable pages are never writable. */
+    for (uint64_t idx = 0; idx < span_pages; idx++)
+    {
+        uint64_t va = span_lo + idx * PAGE_SIZE;
+        if (vmm_virt_to_phys_in(mmu, va) == 0)
+            continue;
+        uint32_t flags = MMU_USER;
+        if (cover[idx] & SEG_COVER_W)
+            flags |= MMU_WRITE;
+        if ((cover[idx] & SEG_COVER_W) || !(cover[idx] & SEG_COVER_X))
+            flags |= MMU_NX;
+        if (vmm_protect_page(mmu, va, flags) < 0)
+        {
+            printk("ELF: protect failed 0x%lx\n", va);
+            goto fail;
+        }
+    }
+    kfree(cover);
+    cover = 0;
+
     *entry = h->e_entry;
 
     uint64_t stack_top_ptr = 0;
     uint64_t stack_base = (highest + 0x10000ULL + 0xFFFULL) & ~0xFFFULL;
     uint64_t stack_pages = 32;
 
+    /* Guard page: the page below the mapped stack is left unmapped so a
+       downward stack overflow faults instead of silently corrupting. */
+    uint64_t stack = stack_base + PAGE_SIZE;
+
     for (uint64_t p = 0; p < stack_pages; p++)
     {
-        uint64_t va   = stack_base + p * PAGE_SIZE;
+        uint64_t va   = stack + p * PAGE_SIZE;
         uint64_t phys = (uint64_t)pmm_alloc_frame();
         if (!phys)
         {
             printk("ELF: OOM stack\n");
             goto fail;
         }
-        if (vmm_map_page_in(mmu, va, phys, MMU_USER | MMU_WRITE) < 0)
+        if (vmm_map_page_in(mmu, va, phys, MMU_USER | MMU_WRITE | MMU_NX) < 0)
         {
             pmm_free_frame((void *)phys);
             goto fail;
         }
     }
 
-    if (setup_user_stack(stack_base, stack_pages, argc, argv, envc, envp,
+    if (setup_user_stack(stack, stack_pages, argc, argv, envc, envp,
                          &stack_top_ptr))
         goto fail;
 
@@ -169,6 +246,8 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
 
 fail:
     vmm_switch(saved);
+    if (cover)
+        kfree(cover);
     return -1;
 }
 
@@ -189,17 +268,19 @@ static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
     uint64_t str_ptrs[32];
     for (int i = 0; i < argc; i++)
     {
-        size_t l = strlen(argv[i]) + 1;
+        const char *s = argv[i] ? argv[i] : "";
+        size_t l = strlen(s) + 1;
         sp -= l;
-        memcpy((void *)(uintptr_t)sp, argv[i], l);
+        memcpy((void *)(uintptr_t)sp, s, l);
         str_ptrs[i] = sp;
     }
     uint64_t env_ptrs[32];
     for (int i = 0; i < envc; i++)
     {
-        size_t l = strlen(envp[i]) + 1;
+        const char *s = envp[i] ? envp[i] : "";
+        size_t l = strlen(s) + 1;
         sp -= l;
-        memcpy((void *)(uintptr_t)sp, envp[i], l);
+        memcpy((void *)(uintptr_t)sp, s, l);
         env_ptrs[i] = sp;
     }
     sp &= ~0xFULL;                 /* lowest string address, 16-aligned */
@@ -211,6 +292,9 @@ static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
        (so `call main` in crt0 yields RSP%16==8 inside main, per the SysV ABI). */
     uint64_t base = str_lo - 8UL * (argc + envc + 3);
     base &= ~0xFULL;              /* entry RSP, 16-aligned, points at argc */
+
+    if (base < stack_base)
+        return -1;                /* args too big; would underflow the stack */
 
     uint64_t w = base + 8UL * (argc + envc + 2);   /* envp NULL slot */
     *(uint64_t *)(uintptr_t)w = 0;

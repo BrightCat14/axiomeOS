@@ -246,6 +246,81 @@ uint64_t mmu_virt_to_phys(struct mmu_root *root, uint64_t virt)
     return (*pte & ~0xFFF) | (virt & 0xFFF);
 }
 
+/* Non-allocating page-table walk: returns the PTE flags covering `virt`, or 0
+   if any level is not present. Huge pages are accepted and reported as-is. */
+static uint64_t range_pte(struct mmu_root *root, uint64_t virt)
+{
+    uint64_t idx4 = (virt >> 39) & 0x1FF;
+    uint64_t *entry = &root->entry[idx4];
+    if (!(*entry & X86_PTE_PRESENT))
+        return 0;
+    if (*entry & X86_PTE_HUGE)
+        return *entry;
+
+    uint64_t *pdp = (uint64_t *)(uintptr_t)(*entry & ~0xFFF);
+    entry = &pdp[(virt >> 30) & 0x1FF];
+    if (!(*entry & X86_PTE_PRESENT))
+        return 0;
+    if (*entry & X86_PTE_HUGE)
+        return *entry;
+
+    uint64_t *pd = (uint64_t *)(uintptr_t)(*entry & ~0xFFF);
+    entry = &pd[(virt >> 21) & 0x1FF];
+    if (!(*entry & X86_PTE_PRESENT))
+        return 0;
+    if (*entry & X86_PTE_HUGE)
+        return *entry;
+
+    uint64_t *pt = (uint64_t *)(uintptr_t)(*entry & ~0xFFF);
+    entry = &pt[(virt >> 12) & 0x1FF];
+    if (!(*entry & X86_PTE_PRESENT))
+        return 0;
+    return *entry;
+}
+
+int mmu_check_user_range(struct mmu_root *root, uint64_t virt, size_t len,
+                         int write)
+{
+    if (!root)
+        root = kernel_root;
+    if (len == 0)
+        return 1;
+    if (virt > UINT64_MAX - len)
+        return 0;
+
+    uint64_t end = virt + len;
+    while (virt < end)
+    {
+        uint64_t flags = range_pte(root, virt);
+        if (!(flags & X86_PTE_PRESENT) || !(flags & X86_PTE_USER))
+            return 0;
+        if (write && !(flags & X86_PTE_WRITE))
+            return 0;
+        uint64_t step = PAGE_SIZE - (virt & (PAGE_SIZE - 1));
+        uint64_t remain = end - virt;
+        if (step > remain)
+            step = remain;
+        virt += step;
+    }
+    return 1;
+}
+
+int mmu_protect(struct mmu_root *root, uint64_t virt, uint32_t flags)
+{
+    if (!root)
+        root = kernel_root;
+    uint64_t *pte = walk_page(root, virt, 0);
+    if (!pte || !(*pte & X86_PTE_PRESENT))
+        return -1;
+    uint64_t phys = *pte & ~0xFFF;
+    *pte = phys | to_x86_flags(flags);
+    /* Always invalidate: when the target root is the active one (e.g. the ELF
+       loader hardening .text while the new address space is live), stale TLB
+       entries must not keep granting the old permission bits. */
+    flush_tlb();
+    return 0;
+}
+
 static struct mmu_root *clone_level(struct mmu_root *src, int level, int deep_user)
 {
     struct mmu_root *dst = (struct mmu_root *)(uintptr_t)pmm_alloc_frame();

@@ -30,8 +30,16 @@ int vmm_map_page_in(struct mmu_root *root, uint64_t virt, uint64_t phys,
                     uint32_t flags);
 int vmm_unmap_page(uint64_t virt);
 uint64_t vmm_virt_to_phys(uint64_t virt);
+uint64_t vmm_virt_to_phys_in(struct mmu_root *root, uint64_t virt);
 int vmm_map_range(uint64_t virt, uint64_t phys, size_t pages, uint32_t flags);
 void *vmm_mmap_phys(uint64_t phys, size_t pages, uint32_t flags);
+int vmm_protect_page(struct mmu_root *root, uint64_t virt, uint32_t flags);
+
+/* True iff every page in [virt, virt+len) of `root` is mapped as a user page
+   (and writable when write=1). Validates userspace pointers before copy-in /
+   copy-out in the syscall layer. */
+int vmm_check_user_range(struct mmu_root *root, uint64_t virt, size_t len,
+                         int write);
 
 struct mmu_root *vmm_kernel_root(void);
 struct mmu_root *vmm_new_user_root(void);

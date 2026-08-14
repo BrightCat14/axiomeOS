@@ -49,6 +49,16 @@ int mmu_unmap(struct mmu_root *root, uint64_t virt);
 /* Translate a mapped virtual address (page offset preserved). */
 uint64_t mmu_virt_to_phys(struct mmu_root *root, uint64_t virt);
 
+/* True iff every page in [virt, virt+len) is mapped with the MMU_USER bit
+   set in `root`, and (if write=1) the MMU_WRITE bit set. Used to validate
+   userspace pointers before copy-in/copy-out. Does not allocate. */
+int mmu_check_user_range(struct mmu_root *root, uint64_t virt, size_t len,
+                         int write);
+
+/* Update the page-table flags of an existing mapping (used to apply W^X
+   protections after an image is loaded). Returns 0 or -1 if not mapped. */
+int mmu_protect(struct mmu_root *root, uint64_t virt, uint32_t flags);
+
 /* Activate an address space on the current CPU. */
 void mmu_switch(struct mmu_root *root);
 
