@@ -126,7 +126,7 @@ debug: iso disk.img
 		-m 512M -serial stdio -s -S
 
 install: disk.img
-	sudo tools/install.sh $(DEV) $(BUILD_DIR)
+	sudo $(shell pwd)/tools/install.sh $(DEV) $(BUILD_DIR)
 
 clean:
 	rm -rf $(BUILD_DIR)/isodir $(BUILD_DIR)/boot.fat \
