@@ -204,11 +204,6 @@ void kmain(unsigned long magic, unsigned long mb2_info_addr)
 
     exec_init_from_disk();
 
-    printk("Trying demand paging via fault...\n");
-    uint64_t *dp_fault = (uint64_t *)0xFFFFFE8000001000ULL;
-    *dp_fault = 0x4242;
-    printk("Demand paging OK: 0x%lx\n", *dp_fault);
-
     uint64_t yield_count = 0;
     printk("APIC: tick");
     hal_cpu_irq_enable();
