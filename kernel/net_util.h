@@ -64,7 +64,9 @@ static inline int ip4_is_broadcast(ip4_addr_t addr)
 
 static inline int ip4_is_multicast(ip4_addr_t addr)
 {
-    return (addr & 0xE0000000) == 0xE0000000; /* 224.0.0.0/4 */
+    /* ip4_make puts the first octet in the low byte, so 224.0.0.0/4 is
+       detected from octet 0 (0xE0..0xEF). */
+    return (addr & 0x000000F0u) == 0x000000E0u;
 }
 
 static inline uint8_t ip4_octet(ip4_addr_t addr, int i)
