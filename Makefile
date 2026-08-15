@@ -26,7 +26,7 @@ DISK_PATH := $(BUILD_DIR)/disk.img
 # of them changes (a userspace .elf or a .kxt), the ROOT partition rebuilds.
 MANIFEST_BINS := $(shell sed -n 's/.*[[:space:]]bin:\([^[:space:]]*\).*/\1/p' root_manifest.txt)
 
-.PHONY: all kernel iso run run-fb run-usb debug test-hid clean distclean install disk.img
+.PHONY: all kernel iso run run-fb run-usb debug test test-hid clean distclean install disk.img
 
 all: iso
 
@@ -112,11 +112,74 @@ run-usb: iso disk.img
 		-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
 		-device usb-mouse,bus=xhci.0
 
-test-hid:
-	@mkdir -p $(BUILD_DIR)/tests
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror \
-		-I$(REPO_ROOT)/kernel -o $(BUILD_DIR)/tests/hid_boot_test \
-		tests/hid_boot_test.c kernel/hid_boot.c
+# ---------------------------------------------------------------------------
+# Host-side unit tests.  Each test compiles the real kernel/userspace sources
+# (never copies of them) against the host toolchain and runs as a native
+# binary, so pure-logic units are exercised without booting the OS.
+# ---------------------------------------------------------------------------
+TEST_CFLAGS := -std=c11 -O2 -Wall -Wextra -Werror -fno-builtin
+KERNEL_INC  := -I$(REPO_ROOT)/kernel
+LIBC_INC    := -I$(REPO_ROOT)/kernel/userspace/libc
+LIBC_STUBS  := tests/libc_stubs_host.c
+
+KERNEL_TESTS := \
+	$(BUILD_DIR)/tests/hid_boot_test \
+	$(BUILD_DIR)/tests/kernel_string_test \
+	$(BUILD_DIR)/tests/kernel_net_util_test \
+	$(BUILD_DIR)/tests/kernel_layout_test
+
+LIBC_TESTS := \
+	$(BUILD_DIR)/tests/libc_string_test \
+	$(BUILD_DIR)/tests/libc_stdlib_test \
+	$(BUILD_DIR)/tests/libc_time_test \
+	$(BUILD_DIR)/tests/libc_stdio_test
+
+TEST_BINS := $(KERNEL_TESTS) $(LIBC_TESTS)
+
+.PHONY: test test-hid
+
+test: $(TEST_BINS)
+	@set -e; for t in $(TEST_BINS); do echo "== $$t =="; $$t; done; \
+	echo "All tests passed."
+
+$(BUILD_DIR)/tests/hid_boot_test: tests/hid_boot_test.c kernel/hid_boot.c
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ $^
+
+$(BUILD_DIR)/tests/kernel_string_test: tests/kernel_string_test.c kernel/string.c
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ $^
+
+$(BUILD_DIR)/tests/kernel_net_util_test: tests/kernel_net_util_test.c kernel/net_util.h
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ $<
+
+$(BUILD_DIR)/tests/kernel_layout_test: tests/kernel_layout_test.c kernel/elf.h kernel/axiomefs.h
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ $<
+
+$(BUILD_DIR)/tests/libc_string_test: tests/libc_string_test.c \
+		kernel/userspace/libc/string.c kernel/userspace/libc/stdlib.c $(LIBC_STUBS)
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(LIBC_INC) -o $@ $^
+
+$(BUILD_DIR)/tests/libc_stdlib_test: tests/libc_stdlib_test.c \
+		kernel/userspace/libc/string.c kernel/userspace/libc/stdlib.c $(LIBC_STUBS)
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(LIBC_INC) -o $@ $^
+
+$(BUILD_DIR)/tests/libc_time_test: tests/libc_time_test.c \
+		kernel/userspace/libc/time.c $(LIBC_STUBS)
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(LIBC_INC) -o $@ $^
+
+$(BUILD_DIR)/tests/libc_stdio_test: tests/libc_stdio_test.c \
+		kernel/userspace/libc/stdio.c kernel/userspace/libc/string.c \
+		kernel/userspace/libc/stdlib.c $(LIBC_STUBS)
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) -Wno-unused-function $(LIBC_INC) -o $@ $^
+
+test-hid: $(BUILD_DIR)/tests/hid_boot_test
 	$(BUILD_DIR)/tests/hid_boot_test
 
 debug: iso disk.img
