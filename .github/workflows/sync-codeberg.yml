@@ -1,0 +1,85 @@
+name: Sync from Codeberg
+
+on:
+  schedule:
+    # Run hourly
+    - cron: '0 * * * *'
+  # Allow manual trigger from the Actions tab
+  workflow_dispatch:
+
+# Grant write permissions to the default GITHUB_TOKEN
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch and Create PR from Codeberg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CODEBERG_REPO_URL: "https://codeberg.org/akaruineko/axiomeOS.git" # Replace with your Codeberg repo URL
+          TARGET_BRANCH: "development"                                             # Main branch in GitHub
+          SYNC_BRANCH: "sync/codeberg-upstream"                             # Temporary branch for PR
+        run: |
+          # Configure Git bot identity
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Add Codeberg as a remote and fetch commits
+          git remote add codeberg "$CODEBERG_REPO_URL"
+          git fetch codeberg
+
+          # Find new commits from Codeberg target branch that are not in target branch
+          NEW_COMMITS=$(git log "origin/$TARGET_BRANCH..codeberg/$TARGET_BRANCH" --oneline)
+
+          if [ -z "$NEW_COMMITS" ]; then
+            echo "No new commits found. Repositories are in sync."
+            exit 0
+          fi
+
+          echo "Found new commits to sync."
+
+          # Create or reset temporary sync branch based on current GitHub main branch
+          git checkout -B "$SYNC_BRANCH" "origin/$TARGET_BRANCH"
+
+          # Merge Codeberg branch without auto-committing so we can filter files
+          git merge --no-commit --no-ff "codeberg/$TARGET_BRANCH" || true
+
+          # Restore ignored files/directories back to original GitHub state
+          git checkout "origin/$TARGET_BRANCH" -- README.md LICENSE.txt docs/ 2>/dev/null || true
+          git reset -- README.md LICENSE.txt docs/ 2>/dev/null || true
+
+          # Clean up unstaged changes in ignored paths if they were newly created
+          rm -rf docs/ README.md LICENSE.txt 2>/dev/null || true
+          git checkout "origin/$TARGET_BRANCH" -- README.md LICENSE.txt docs/ 2>/dev/null || true
+
+          # Check if there are any changes left after ignoring documentation and license
+          if git diff --staged --quiet; then
+            echo "Only ignored files (README.md, LICENSE.txt, docs/) were changed in upstream. Skipping PR."
+            exit 0
+          fi
+
+          # Commit the changes minus the ignored files
+          git commit -m "Sync: include commits from Codeberg"
+          git push origin "$SYNC_BRANCH" --force
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "$SYNC_BRANCH" --base "$TARGET_BRANCH" --json number --jq '.[0].number')
+
+          if [ -z "$EXISTING_PR" ]; then
+            echo "Creating a new Pull Request..."
+            gh pr create \
+              --title "Sync: new commits from Codeberg" \
+              --body "Automated PR to sync commits from Codeberg, excluding documentation and license changes." \
+              --base "$TARGET_BRANCH" \
+              --head "$SYNC_BRANCH"
+          else
+            echo "PR #$EXISTING_PR already exists and has been updated with new commits."
+          fi
