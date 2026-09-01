@@ -8,6 +8,7 @@
 #include "mmu.h"
 #include "pmm.h"
 #include "mmap.h"
+#include "printk.h"
 
 extern uint64_t mmap_max_addr;
 extern uint64_t pd_table[];
@@ -369,6 +370,20 @@ static struct mmu_root *clone_level(struct mmu_root *src, int level, int deep_us
             uint64_t np = (uint64_t)pmm_alloc_frame();
             if (!np)
                 return 0;
+            {
+                static int dbg = 0;
+                uint64_t hi_src = ((uint64_t)next_src >> 48);
+                uint64_t hi_np  = (np >> 48);
+                if (dbg < 200)
+                {
+                    printk("CLONEDBG i=%d src=0x%lx np=0x%lx\n",
+                           i, (unsigned long)next_src, (unsigned long)np);
+                    dbg++;
+                }
+                if ((hi_src != 0 && hi_src != 0xffff) || (hi_np != 0 && hi_np != 0xffff))
+                    printk("CLONEDBG-BAD i=%d src=0x%lx np=0x%lx\n",
+                           i, (unsigned long)next_src, (unsigned long)np);
+            }
             __builtin_memcpy((void *)(uintptr_t)np, next_src, PAGE_SIZE);
             dst->entry[i] = np | (e & 0x1FF);
         }
@@ -383,6 +398,35 @@ struct mmu_root *mmu_new_user_root(void)
 
 struct mmu_root *mmu_clone_root(struct mmu_root *src)
 {
+    {
+        /* CLI0DBG: dump source leaf PTEs at PML4 idx 0..9 to find the corrupt entry */
+        for (int i4 = 0; i4 < 10; i4++)
+        {
+            uint64_t e4 = src->entry[i4];
+            if (!(e4 & 1) || !(e4 & 4))
+                continue;
+            uint64_t *pdp = (uint64_t *)(uintptr_t)(e4 & ~0xFFFULL);
+            for (int i3 = 0; i3 < 512; i3++)
+            {
+                uint64_t e3 = pdp[i3];
+                if (!(e3 & 1) || !(e3 & 4) || (e3 & 0x80))
+                    continue;
+                uint64_t *pd = (uint64_t *)(uintptr_t)(e3 & ~0xFFFULL);
+                for (int i2 = 0; i2 < 512; i2++)
+                {
+                    uint64_t e2 = pd[i2];
+                    if (!(e2 & 1) || !(e2 & 4) || (e2 & 0x80))
+                        continue;
+                    uint64_t *pt = (uint64_t *)(uintptr_t)(e2 & ~0xFFFULL);
+                    for (int i1 = 0; i1 < 512; i1++)
+                        if (pt[i1] & 1)
+                            printk("CLI0SRC i4=%d i3=%d i2=%d i1=%d pte=0x%lx\n",
+                                   i4, i3, i2, i1, (unsigned long)pt[i1]);
+                }
+            }
+        }
+        printk("CLI0SRC dump end\n");
+    }
     return clone_level(src, 4, 1);
 }
 

@@ -85,6 +85,7 @@ extern const uint64_t role_caps[NROLES];
 #define EPERM    1
 #define ENOENT   2
 #define ESRCH    3
+#define EINTR    4
 #define EIO      5
 #define EBADF    9
 #define ENOMEM   12
@@ -94,6 +95,8 @@ extern const uint64_t role_caps[NROLES];
 #define ENOTDIR  20
 #define EISDIR   21
 #define EINVAL   22
+#define ENOTEMPTY 39
+#define ESPIPE   29
 #define ENOSYS   38
 
 /* ---- user database (parsed from /etc/passwd) ---- */
@@ -104,7 +107,7 @@ struct user_entry {
     uid_t uid;
     gid_t gid;
     user_role_t role;
-    char passwd_hash[64];
+    char passwd_hash[65];
     char home[128];
     char shell[64];
 };

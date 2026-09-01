@@ -6,8 +6,9 @@
 namespace hal {
 
 /* Device interrupt handler. ctx is the opaque context passed to
-   register_handler(). */
-typedef void (*IrqHandlerFn)(void *ctx);
+   register_handler(); frame is the raw interrupted-CPU register frame
+   (NULL if the arch does not provide one), used to detect user mode. */
+typedef void (*IrqHandlerFn)(void *ctx, void *frame);
 
 /* Architecture interrupt plumbing. The arch ISR glue calls dispatch() for
    every device interrupt vector; EOI and line masking are provided here so
@@ -19,8 +20,9 @@ public:
     virtual int register_handler(int vector, IrqHandlerFn fn, void *ctx) = 0;
     virtual int unregister_handler(int vector) = 0;
 
-    /* Invoke the handler registered for `vector`, if any. */
-    virtual void dispatch(int vector) = 0;
+    /* Invoke the handler registered for `vector`, if any, passing the raw
+       interrupt frame. */
+    virtual void dispatch(int vector, void *frame) = 0;
 
     /* Acknowledge end-of-interrupt for the currently serviced vector. */
     virtual void eoi(void) = 0;

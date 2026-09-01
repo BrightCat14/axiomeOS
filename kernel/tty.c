@@ -3,14 +3,22 @@
 #include "framebuffer.h"
 #include "printk.h"
 #include "spinlock.h"
+#include "sched.h"
+#include "signal.h"
+#include "security.h"
 
 #define TTY_LINE_MAX 512
+#define TTY_CTRL_C   3
 
 static spinlock_t tty_lock = SPINLOCK_INIT;
 static char tty_line[TTY_LINE_MAX];
 static int  tty_len;
 static int  tty_pos;
 static int  tty_ready;
+
+/* Thread blocked in tty_read_char_blocked() waiting for input. Woken when a
+   line completes or when Ctrl-C arrives (issue #28 / #30). */
+static struct thread *tty_wait_read;
 
 /* Escape sequence buffer for arrow keys - we send them as raw bytes to userspace */
 static char esc_buffer[16];
@@ -45,6 +53,23 @@ void tty_input_char(int c)
 {
     unsigned long flags = spin_lock_irq(&tty_lock);
 
+    /* Ctrl-C: raise SIGINT on the blocked reader (and any process waiting on
+       this tty) instead of buffering the byte (issue #30). */
+    if (c == TTY_CTRL_C)
+    {
+        struct thread *r = tty_wait_read;
+        if (sched_current() && sched_current()->pid)
+            r = sched_current();
+        if (r && r != (struct thread *)0)
+        {
+            r->sig_pending |= (1ULL << SIGINT);
+            sched_wake(r);
+        }
+        tty_wait_read = 0;
+        spin_unlock_irq(&tty_lock, flags);
+        return;
+    }
+
     /* Handle special key codes */
     if (c >= 0x100) {
         /* Arrow keys and special keys - send as escape sequences */
@@ -71,6 +96,11 @@ void tty_input_char(int c)
             tty_line[tty_len++] = '\n';
         tty_echo('\n');
         tty_ready = 1;
+        if (tty_wait_read)
+        {
+            sched_wake(tty_wait_read);
+            tty_wait_read = 0;
+        }
     }
     else if (c == '\b' || c == 0x7F)
     {
@@ -111,4 +141,41 @@ int tty_read_char(char *c)
     }
     spin_unlock_irq(&tty_lock, flags);
     return 1;
+}
+
+/* Blocking line read (issue #28). Suspends the current thread until a full
+   line is available. Returns 1 for a byte read, -EINTR if Ctrl-C pending.
+   The null thread guard means kernel threads never block here. */
+int tty_read_char_blocked(char *c)
+{
+    struct thread *self = sched_current();
+    if (!self)
+        return 0;
+
+    for (;;)
+    {
+        if (self->sig_pending & (1ULL << SIGINT))
+            return -EINTR;   /* signal delivered; let the syscall path handle it */
+
+        unsigned long flags = spin_lock_irq(&tty_lock);
+        if (tty_ready)
+        {
+            *c = tty_line[tty_pos++];
+            if (tty_pos >= tty_len)
+            {
+                tty_ready = 0;
+                tty_len = 0;
+                tty_pos = 0;
+            }
+            spin_unlock_irq(&tty_lock, flags);
+            return 1;
+        }
+        tty_wait_read = self;
+        spin_unlock_irq(&tty_lock, flags);
+        /* DIAGNOSTIC: busy-wait instead of suspending, to isolate the
+           sched_suspend-in-syscall path as the crash source. */
+        self->state = THREAD_READY;
+        sched_yield();
+        tty_wait_read = 0;
+    }
 }
