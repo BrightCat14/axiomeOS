@@ -3,76 +3,12 @@
 
 #include <stdint.h>
 
-#define SYS_PRINT  0
-#define SYS_YIELD  1
-#define SYS_EXIT   2
-#define SYS_FORK   3
-#define SYS_GETPID 5
-#define SYS_WAITPID 6
-#define SYS_WRITE  7
-#define SYS_READ   8
-#define SYS_SPAWN_CMD 9
-#define SYS_PS    10
-#define SYS_OPEN   11
-#define SYS_CLOSE  12
-#define SYS_MKDIR  13
-#define SYS_UNLINK 14
-#define SYS_READDIR 15
-#define SYS_CHDIR  16
-#define SYS_GETCWD 17
-#define SYS_FSTAT   18
-#define SYS_DUP2   19
-#define SYS_PIPE   20
-#define SYS_MOUNT  21
-#define SYS_UMOUNT 22
-#define SYS_KILL   23
-#define SYS_SIGACTION 24
-#define SYS_SIGRETURN 25
-#define SYS_IPC_CREATE 26
-#define SYS_IPC_SEND 27
-#define SYS_IPC_RECV 28
-#define SYS_SHM_CREATE 29
-#define SYS_SHM_ATTACH 30
-#define SYS_MKFIFO 31
-#define SYS_DRIVER_RESCAN 32
-#define SYS_SOCKET_CREATE 33
-#define SYS_SOCKET_BIND   34
-#define SYS_SOCKET_CONNECT 35
-#define SYS_SOCKET_SEND   36
-#define SYS_SOCKET_RECV   37
-#define SYS_SOCKET_CLOSE  38
-#define SYS_SOCKET_LISTEN 39
-#define SYS_SOCKET_ACCEPT 40
-
-/* ---- user rank system (docs/user-rank-system-spec.md) ---- */
-#define SYS_GETUID   41
-#define SYS_GETEUID  42
-#define SYS_GETGID   43
-#define SYS_GETEGID  44
-#define SYS_SETUID   45
-#define SYS_SETGID   46
-#define SYS_GETROLE  47
-#define SYS_CHMOD    48
-#define SYS_CHOWN    49
-#define SYS_GETCAP   50
-#define SYS_SETCAP   51
-#define SYS_GETPWNAM 52   /* name -> uid/gid (see sys_getpwnam) */
-
-/* ---- loadable kernel modules (.kxt) ---- */
-#define SYS_MODULE_LOAD   53  /* a1 = path (userspace ptr)          */
-#define SYS_MODULE_UNLOAD 54  /* a1 = name (userspace ptr)          */
-#define SYS_MMAP          55  /* a1=fd, a2=off, a3=virt, a4=len, a5=flags */
-
-/* ---- system info ---- */
-#define SYS_UNAME         56  /* a1 = struct utsname * (userspace ptr) */
-#define SYS_RELOAD_USERS  57  /* re-parse /etc/passwd (first-boot OOBE) */
-#define SYS_EXECVE        58  /* a1=path, a2=argv, a3=envp */
-
-/* ---- time ---- */
-#define SYS_TIME          59  /* a1 = time_t * (out, may be NULL)               */
-#define SYS_GETTIMEOFDAY  60  /* a1 = struct timeval * (out), a2 = ignored      */
-#define SYS_NANOSLEEP     61  /* a1 = const struct timespec * req,
-                                 a2 = struct timespec * rem (may be NULL)       */
+/*
+ * Syscall numbers are defined in userspace/libc/syscall_numbers.h so the
+ * kernel and the userspace libc share a single source of truth (issue #33).
+ * Application space must never renumber these.
+ */
+#include "userspace/libc/syscall_numbers.h"
 
 /* File-type bits for st_mode (subset of POSIX). */
 #define S_IFREG 0x8000

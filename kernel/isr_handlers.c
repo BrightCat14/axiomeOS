@@ -8,6 +8,7 @@
 #include "vmm.h"
 #include "pmm.h"
 #include "sched.h"
+#include "signal.h"
 #include "hal/cshim.h"
 
 static const char *exception_names[] = {
@@ -68,40 +69,46 @@ void isr_handler(struct isr_frame *frame)
     {
         /* Device interrupts: dispatch through the HAL so handlers are
            registered centrally (see isr_init) and the APIC/IOAPIC wiring
-           stays behind the HAL interface. */
-        hal_irq_dispatch((int)frame->int_no);
+           stays behind the HAL interface. The raw frame is passed along so a
+           handler can tell whether user mode was interrupted. */
+        hal_irq_dispatch((int)frame->int_no, (void *)frame);
     }
 }
 
 /* HAL device-vector wrappers. Timer and the PS/2 / serial devices keep the
    exact EOI ordering of the old hardcoded dispatch. */
 
-static void timer_irq_wrapper(void *ctx)
+static void timer_irq_wrapper(void *ctx, void *frame)
 {
     (void)ctx;
     apic_timer_tick();
     sched_tick();
+    /* Deliver pending signals to a user-mode process interrupted by the timer
+       (SIGINT/SIGKILL must break a CPU-bound loop that makes no syscalls;
+       issue #30). kernel_deliver_signals_user inspects the frame's CS to only
+       touch genuine user-mode interrupts. */
+    kernel_deliver_signals_user(frame);
     if (sched_current() && sched_current()->quantum <= 0)
         sched_yield();
 }
 
-static void kbd_irq_wrapper(void *ctx)
+static void kbd_irq_wrapper(void *ctx, void *frame)
 {
-    (void)ctx;
+    (void)ctx; (void)frame;
     keyboard_irq_handler();
     hal_irq_eoi();
 }
 
-static void mouse_irq_wrapper(void *ctx)
+static void mouse_irq_wrapper(void *ctx, void *frame)
 {
-    (void)ctx;
+    (void)ctx; (void)frame;
     mouse_irq_handler();
     hal_irq_eoi();
 }
 
-static void serial_irq_wrapper(void *ctx)
+static void serial_irq_wrapper(void *ctx, void *frame)
 {
-    (void)ctx;
+    (void)ctx; (void)frame;
     serial_irq_handler();
     hal_irq_eoi();
 }

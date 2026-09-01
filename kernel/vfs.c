@@ -521,18 +521,19 @@ size_t vfs_read(struct vnode *n, size_t off, void *buf, size_t len)
     return n->sb->ops->read(n->sb, n, off, buf, len);
 }
 
-size_t vfs_write(struct vnode *n, size_t off, const void *buf, size_t len)
+long vfs_write(struct vnode *n, size_t off, const void *buf, size_t len)
 {
-    if (!n || !n->sb || !n->sb->ops->write) return 0;
+    if (!n || !n->sb || !n->sb->ops->write)
+        return -EBADF;
     struct thread *t = sched_current();
     if (t && t->role != ROLE_SYSTEM)
     {
         if (!(t->caps_eff & (CAP_FILE_WRITE_ANY | CAP_FILE_WRITE_SELF)))
-            return 0;
+            return -EPERM;
         if (n->type == VFS_FILE && vfs_check_perms(n, VFS_MAY_WRITE) != 0)
-            return 0;
+            return -EACCES;
     }
-    return n->sb->ops->write(n->sb, n, off, buf, len);
+    return (long)n->sb->ops->write(n->sb, n, off, buf, len);
 }
 
 int vfs_read_file(const char *path, uint8_t **out_buf, size_t *out_size)
