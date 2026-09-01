@@ -12,7 +12,10 @@
 extern "C" {
 #endif
 
-typedef void (*hal_irq_handler_t)(void *ctx);
+/* Interrupt handler. ctx is the opaque context from register(); frame is the
+   raw interrupted-CPU register frame (may be NULL if the arch does not
+   provide one). The frame lets handlers see whether user mode was running. */
+typedef void (*hal_irq_handler_t)(void *ctx, void *frame);
 
 /* ---- Bootstrapping ---- */
 
@@ -46,7 +49,7 @@ void     hal_cpu_memory_barrier(void);
 
 int  hal_irq_register(int vector, hal_irq_handler_t fn, void *ctx);
 int  hal_irq_unregister(int vector);
-void hal_irq_dispatch(int vector);
+void hal_irq_dispatch(int vector, void *frame);
 void hal_irq_eoi(void);
 void hal_irq_mask(int irq, int masked);
 void hal_irq_route(int irq, uint8_t vector, int masked);

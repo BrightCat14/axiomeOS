@@ -6,71 +6,11 @@
 
 long syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
-#define SYS_PRINT   0
-#define SYS_YIELD   1
-#define SYS_EXIT    2
-#define SYS_FORK   3
-#define SYS_GETPID  5
-#define SYS_WAITPID 6
-#define SYS_WRITE   7
-#define SYS_READ    8
-#define SYS_SPAWN_CMD 9
-#define SYS_PS    10
-#define SYS_OPEN   11
-#define SYS_CLOSE  12
-#define SYS_MKDIR  13
-#define SYS_UNLINK 14
-#define SYS_READDIR 15
-#define SYS_CHDIR  16
-#define SYS_GETCWD 17
-#define SYS_FSTAT   18
-#define SYS_DUP2   19
-#define SYS_PIPE   20
-#define SYS_MOUNT  21
-#define SYS_UMOUNT 22
-#define SYS_KILL   23
-#define SYS_SIGACTION 24
-#define SYS_SIGRETURN 25
-#define SYS_IPC_CREATE 26
-#define SYS_IPC_SEND 27
-#define SYS_IPC_RECV 28
-#define SYS_SHM_CREATE 29
-#define SYS_SHM_ATTACH 30
-#define SYS_MKFIFO 31
-#define SYS_DRIVER_RESCAN 32
-#define SYS_SOCKET_CREATE 33
-#define SYS_SOCKET_BIND   34
-#define SYS_SOCKET_CONNECT 35
-#define SYS_SOCKET_SEND   36
-#define SYS_SOCKET_RECV   37
-#define SYS_SOCKET_CLOSE  38
-#define SYS_SOCKET_LISTEN 39
-#define SYS_SOCKET_ACCEPT 40
-#define SYS_GETUID   41
-#define SYS_GETEUID  42
-#define SYS_GETGID   43
-#define SYS_GETEGID  44
-#define SYS_SETUID   45
-#define SYS_SETGID   46
-#define SYS_GETROLE  47
-#define SYS_CHMOD    48
-#define SYS_CHOWN    49
-#define SYS_GETCAP   50
-#define SYS_SETCAP   51
-#define SYS_GETPWNAM 52
-
-#define SYS_MODULE_LOAD   53
-#define SYS_MODULE_UNLOAD 54
-#define SYS_MMAP          55
-#define SYS_UNAME         56
-#define SYS_RELOAD_USERS  57
-#define SYS_EXECVE        58
-
-/* ---- time ---- */
-#define SYS_TIME          59  /* a1 = time_t * (out, may be NULL)          */
-#define SYS_GETTIMEOFDAY  60  /* a1 = struct timeval *, a2 = ignored       */
-#define SYS_NANOSLEEP     61  /* a1 = const struct timespec * req,
-                                 a2 = struct timespec * rem (may be NULL)  */
+/*
+ * Syscall numbers come from the single source of truth shared with the kernel
+ * (issue #33).  Never redefine them here.
+ */
+#include "syscall_numbers.h"
 
 /* Open flags (subset of POSIX, must match kernel/vfs.h). */
 #define O_RDONLY  0x0000
@@ -108,6 +48,7 @@ long write(int fd, const void *buf, size_t len);
 long read(int fd, void *buf, size_t len);
 int mkdir(const char *path);
 int unlink(const char *path);
+int rmdir(const char *path);
 int readdir(const char *path, struct vfs_dirent *ents, int max);
 int chdir(const char *path);
 int getcwd(char *buf, size_t size);
@@ -232,5 +173,14 @@ struct utsname {
     char domainname[UTSNAME_LEN];
 };
 int uname(struct utsname *buf);
+
+/* ---- file positioning / positional I/O (issue #28) ---- */
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+long lseek(int fd, long offset, int whence);
+long pread(int fd, void *buf, size_t len, long off);
+long pwrite(int fd, const void *buf, size_t len, long off);
 
 #endif

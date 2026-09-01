@@ -18,57 +18,13 @@ static int read_line(char *buf, int max)
     return i;
 }
 
-/* Authenticate `user` against /etc/passwd on the mounted root fs.
-   Returns the uid on success, -1 on failure.
-
-   NOTE: this minimal OS stores "x" as the password hash (shadowed), so
-   any password is accepted for such entries. A real deployment would run
-   the password through SHA-256 (see kernel security.c) and compare. */
+/* Authenticate `user`/`pass` against the kernel user database (issue #32:
+   previously login parsed /etc/passwd itself and ignored the password; now
+   it delegates to the kernel's security_authenticate, which checks the
+   SHA-256 hash). Returns the uid on success, -1 on failure. */
 static int authenticate(const char *user, const char *pass)
 {
-    (void)pass;
-    int fd = open("/etc/passwd", O_RDONLY);
-    if (fd < 0) return -1;
-    char buf[512];
-    int total = 0;
-    int r;
-    while ((r = (int)read(fd, buf + total, sizeof(buf) - total - 1)) > 0)
-    {
-        total += r;
-        if (total >= (int)sizeof(buf) - 1) break;
-    }
-    close(fd);
-    buf[total] = 0;
-
-    char *line = buf;
-    while (*line)
-    {
-        char *nl = line;
-        while (*nl && *nl != '\n') nl++;
-        char saved = *nl;
-        *nl = 0;
-
-        char *f[7];
-        int nf = 0;
-        char *p = line;
-        while (*p && nf < 7)
-        {
-            f[nf++] = p;
-            while (*p && *p != ':') p++;
-            if (*p) { *p = 0; p++; }
-        }
-        if (nf >= 7 && strcmp(f[0], user) == 0)
-        {
-            int uid = atoi(f[2]);
-            int gid = atoi(f[3]);
-            (void)gid;
-            *nl = saved;
-            return uid;
-        }
-        *nl = saved;
-        line = (*nl) ? nl + 1 : nl;
-    }
-    return -1;
+    return sys_authenticate(user, pass);
 }
 
 int main(void)
