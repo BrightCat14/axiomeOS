@@ -57,6 +57,11 @@ int unlink(const char *path)
     return (int)syscall(SYS_UNLINK, (long)path, 0, 0, 0, 0, 0);
 }
 
+int rmdir(const char *path)
+{
+    return (int)syscall(SYS_RMDIR, (long)path, 0, 0, 0, 0, 0);
+}
+
 int readdir(const char *path, struct vfs_dirent *ents, int max)
 {
     return (int)syscall(SYS_READDIR, (long)path, (long)ents, (long)max, 0, 0, 0);
@@ -79,12 +84,9 @@ int fstat(int fd, struct stat *st)
 
 int stat(const char *path, struct stat *st)
 {
-    int fd = open(path, O_RDONLY);
-    if (fd < 0)
-        return -1;
-    int r = fstat(fd, st);
-    close(fd);
-    return r;
+    /* Use the path-based stat syscall so this works on directories too
+       (open(path, O_RDONLY) would reject a directory with EISDIR). */
+    return (int)syscall(SYS_STAT, (long)path, (long)st, 0, 0, 0, 0);
 }
 
 int dup2(int oldfd, int newfd)
@@ -230,8 +232,7 @@ int  chown(const char *path, uid_t uid, gid_t gid)
 }
 int  sys_authenticate(const char *user, const char *pass)
 {
-    (void)user; (void)pass;
-    return -1;
+    return (int)syscall(SYS_AUTHENTICATE, (long)user, (long)pass, 0,0,0,0);
 }
 
 long fb_mmap(int fd, uint64_t off, void *virt, size_t len)
@@ -252,4 +253,19 @@ long kxtunload(const char *name)
 int uname(struct utsname *buf)
 {
     return (int)syscall(SYS_UNAME, (long)buf, 0, 0, 0, 0, 0);
+}
+
+long lseek(int fd, long offset, int whence)
+{
+    return syscall(SYS_LSEEK, (long)fd, offset, (long)whence, 0, 0, 0);
+}
+
+long pread(int fd, void *buf, size_t len, long off)
+{
+    return syscall(SYS_PREAD, (long)fd, (long)buf, (long)len, off, 0, 0);
+}
+
+long pwrite(int fd, const void *buf, size_t len, long off)
+{
+    return syscall(SYS_PWRITE, (long)fd, (long)buf, (long)len, off, 0, 0);
 }

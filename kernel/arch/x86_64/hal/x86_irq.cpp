@@ -43,12 +43,13 @@ public:
         return 0;
     }
 
-    void dispatch(int vector) override
+    void dispatch(int vector, void *frame) override
     {
+        (void)frame;
         if (vector < 0 || vector > 255)
             return;
         if (slots_[vector].fn)
-            slots_[vector].fn(slots_[vector].ctx);
+            slots_[vector].fn(slots_[vector].ctx, frame);
     }
 
     void eoi(void) override

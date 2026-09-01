@@ -74,7 +74,7 @@ extern "C" int hal_irq_unregister(int vector)
 {
     return hal::irq().unregister_handler(vector);
 }
-extern "C" void hal_irq_dispatch(int vector) { hal::irq().dispatch(vector); }
+extern "C" void hal_irq_dispatch(int vector, void *frame) { hal::irq().dispatch(vector, frame); }
 extern "C" void hal_irq_eoi(void) { hal::irq().eoi(); }
 extern "C" void hal_irq_mask(int irq, int masked) { hal::irq().mask(irq, masked != 0); }
 extern "C" void hal_irq_route(int irq, uint8_t vector, int masked)

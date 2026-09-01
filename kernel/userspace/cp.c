@@ -28,15 +28,33 @@ int main(int argc, char **argv)
     char buf[256];
     long r;
     long total = 0;
+    int ok = 1;
     while ((r = read(in, buf, sizeof buf)) > 0)
     {
-        long w = write(out, buf, (size_t)r);
-        if (w < 0)
+        size_t off = 0;
+        while ((size_t)off < (size_t)r)
+        {
+            long w = write(out, buf + off, (size_t)r - off);
+            if (w < 0)
+            {
+                printf("cp: write error: %ld\n", w);
+                ok = 0;
+                break;
+            }
+            off += (size_t)w;
+        }
+        total += r;
+        if (!ok)
             break;
-        total += w;
     }
     close(in);
     close(out);
+    if (!ok)
+    {
+        unlink(argv[2]);
+        sys_exit(1);
+        return 1;
+    }
     printf("cp: %ld bytes copied\n", total);
     sys_exit(0);
     return 0;

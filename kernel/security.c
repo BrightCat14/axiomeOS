@@ -242,7 +242,7 @@ static void parse_passwd_line(const char *line)
     struct user_entry *u = &g_users[g_nusers];
     memset(u, 0, sizeof(*u));
     strncpy(u->name, fields[0], 31);
-    strncpy(u->passwd_hash, fields[1], 63);
+    strncpy(u->passwd_hash, fields[1], 64);
     u->uid = (uid_t)atoi_simple(fields[2]);
     u->gid = (gid_t)atoi_simple(fields[3]);
     if (strcmp(fields[4], "guest") == 0)       u->role = ROLE_GUEST;

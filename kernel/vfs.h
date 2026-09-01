@@ -119,6 +119,7 @@ struct vfs_file {
     int kind;
     struct vnode *node;
     size_t off;
+    int flags;      /* open-time flags (O_APPEND handled per-write) */
 };
 
 /* Directory entry returned to userspace. */
@@ -157,7 +158,9 @@ int vfs_create(const char *path, int type, const char *cwd);
 int vfs_remove(const char *path, const char *cwd);
 
 size_t vfs_read(struct vnode *n, size_t off, void *buf, size_t len);
-size_t vfs_write(struct vnode *n, size_t off, const void *buf, size_t len);
+/* Returns bytes written, or a negative errno (e.g. -EPERM) on permission /
+   policy failure (issue #32).  Callers must treat negative as an error. */
+long vfs_write(struct vnode *n, size_t off, const void *buf, size_t len);
 long vfs_mmap(struct vnode *n, uint64_t off, uint64_t virt, size_t len, uint64_t flags);
 
 /* Read an entire regular file (resolved from `path`) into a freshly kmalloc'd

@@ -58,4 +58,9 @@ struct sigframe {
    unblocked signal by rewriting the iret frame on the kernel stack. */
 void syscall_deliver_signals(void);
 
+/* Deliver pending signals to the current thread when a device IRQ (timer)
+   interrupted it in user mode, so SIGINT/SIGKILL break CPU-bound loops that
+   make no syscalls (issue #30). `frame` is the raw isr_frame. */
+void kernel_deliver_signals_user(void *frame);
+
 #endif

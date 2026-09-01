@@ -19,6 +19,13 @@
 #include "socket.h"
 #include "security.h"
 #include "module.h"
+#include "signal.h"
+#include "idt.h"
+
+/* SEEK_* whence constants (must match userspace libc/syscall.h). */
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
 
 uint64_t syscall_user_rsp;
 uint64_t current_kstack_top;
@@ -229,9 +236,13 @@ static uint64_t sys_write(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     if (f->kind == FD_PIPE)
         return sys_write_pipe(f, s, len);
     /* FD_VNODE */
-    size_t w = vfs_write(f->node, f->off, s, len);
-    f->off += w;
-    return w;
+    if (f->flags & O_APPEND)
+        f->off = f->node->size;
+    long w = vfs_write(f->node, f->off, s, len);
+    if (w < 0)
+        return (uint64_t)(size_t)w;   /* negative errno, kept as-is */
+    f->off += (size_t)w;
+    return (uint64_t)w;
 }
 
 static uint64_t sys_uname(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
@@ -330,8 +341,15 @@ static uint64_t sys_read(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
         while (got < len)
         {
             char c;
-            if (!tty_read_char(&c))
+            int r = tty_read_char_blocked(&c);
+            if (r < 0)
+            {
+                /* Ctrl-C / signal interrupted the read. Return what we got;
+                   the syscall dispatcher will deliver the signal. */
+                if (got == 0)
+                    return (uint64_t)(size_t)r;
                 break;
+            }
             buf[got++] = c;
         }
         return got;
@@ -357,6 +375,8 @@ static uint64_t sys_read(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
         return r;
     }
     /* FD_VNODE */
+    if (vfs_check_perms(f->node, VFS_MAY_READ) != 0)
+        return (uint64_t)-EACCES;
     size_t r = vfs_read(f->node, f->off, buf, len);
     f->off += r;
     return r;
@@ -501,6 +521,7 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
         }
         t->fds[fd].used = 1; t->fds[fd].kind = FD_PIPE;
         t->fds[fd].node = end; t->fds[fd].off = 0;
+        t->fds[fd].flags = flags;
         return (uint64_t)fd;
     }
     if (n)
@@ -509,6 +530,20 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
         {
             vfs_release(n);
             return (uint64_t)-EISDIR;
+        }
+        /* POSIX: validate the requested access mode against the file's mode
+           at open time (issue #28/#32: read/write permissions used to be
+           unchecked for opened FDs). */
+        if (!(flags & O_WRONLY) && vfs_check_perms(n, VFS_MAY_READ) != 0)
+        {
+            vfs_release(n);
+            return (uint64_t)-EACCES;
+        }
+        if ((flags & (O_WRONLY | O_RDWR)) &&
+            vfs_check_perms(n, VFS_MAY_WRITE) != 0)
+        {
+            vfs_release(n);
+            return (uint64_t)-EACCES;
         }
         if (flags & O_TRUNC)
         {
@@ -539,6 +574,7 @@ static uint64_t sys_open(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     t->fds[fd].kind = FD_VNODE;
     t->fds[fd].node = n;
     t->fds[fd].off = (flags & O_APPEND) ? n->size : 0;
+    t->fds[fd].flags = flags;
     return (uint64_t)fd;
 }
 
@@ -628,6 +664,56 @@ static uint64_t sys_unlink(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, u
         return (uint64_t)-EISDIR;
     }
     vfs_release(n);
+    if (vfs_remove(path, t->cwd) != 0)
+        return (uint64_t)-EACCES;
+    return 0;
+}
+
+/* Verify a username/password pair against the kernel user database (issue
+   #32: the libc sys_authenticate used to be an unused -1 stub). Returns the
+   user's uid on success, -1 on bad credentials. */
+static uint64_t sys_authenticate(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a3; (void)a4; (void)a5;
+    char user[64], pass[128];
+    if (copy_user_str(a1, user, sizeof(user)) < 0)
+        return (uint64_t)-EFAULT;
+    if (copy_user_str(a2, pass, sizeof(pass)) < 0)
+        return (uint64_t)-EFAULT;
+    return (uint64_t)security_authenticate(user, pass);
+}
+
+static uint64_t sys_rmdir(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a2; (void)a3; (void)a4; (void)a5;
+    char path[1024];
+    if (copy_path(a1, path, sizeof(path)) == 0)
+        return (uint64_t)-EFAULT;
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (!n)
+        return (uint64_t)-ENOENT;
+    if (n->type != VFS_DIR)
+    {
+        vfs_release(n);
+        return (uint64_t)-ENOTDIR;
+    }
+    /* Only an empty directory may be removed (issue #31: rm -r).
+       The fs-level list includes "." and ".." (matching userspace readdir),
+       so skip those when checking for remaining children. */
+    struct vfs_dirent ents[8];
+    long cnt = vfs_list(path, t->cwd, ents, 8);
+    vfs_release(n);
+    if (cnt < 0)
+        return (uint64_t)-EIO;
+    for (long i = 0; i < cnt; i++)
+    {
+        const char *nm = ents[i].name;
+        if (nm[0] == '.' && (nm[1] == 0 || (nm[1] == '.' && nm[2] == 0)))
+            continue;
+        return (uint64_t)-ENOTEMPTY;
+    }
     if (vfs_remove(path, t->cwd) != 0)
         return (uint64_t)-EACCES;
     return 0;
@@ -737,12 +823,42 @@ static uint64_t sys_fstat(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     struct vfs_file *f = &t->fds[fd];
     if (f->kind != FD_VNODE || !f->node)
         return (uint64_t)-EBADF;
-    struct vnode *n = f->node;
+    struct stat st;
+    st.st_size = (uint64_t)f->node->size;
+    st.st_mode = (f->node->type == VFS_DIR) ? S_IFDIR : S_IFREG;
+    st.st_nlink = 1;
+    st.st_ino = (uint32_t)(uintptr_t)f->node->priv;
+    return (uint64_t)copy_to_user(ust, &st, sizeof(st));
+}
+
+/* Path-based stat() (issue #28). Unlike the stat() helper in libc, this does
+   not require opening the file first, so it works on directories and on
+   files that cannot be opened read-only. */
+static uint64_t sys_stat(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a3; (void)a4; (void)a5;
+    char path[1024];
+    if (copy_path(a1, path, sizeof(path)) == 0)
+        return (uint64_t)-EFAULT;
+    struct stat *ust = (struct stat *)a2;
+    if (!ust)
+        return (uint64_t)-EFAULT;
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    struct vnode *n = vfs_lookup(path, t->cwd);
+    if (!n)
+        return (uint64_t)-ENOENT;
+    if (vfs_check_perms(n, VFS_MAY_READ) != 0)
+    {
+        vfs_release(n);
+        return (uint64_t)-EACCES;
+    }
     struct stat st;
     st.st_size = (uint64_t)n->size;
     st.st_mode = (n->type == VFS_DIR) ? S_IFDIR : S_IFREG;
     st.st_nlink = 1;
     st.st_ino = (uint32_t)(uintptr_t)n->priv;
+    vfs_release(n);
     return (uint64_t)copy_to_user(ust, &st, sizeof(st));
 }
 
@@ -771,6 +887,7 @@ static uint64_t sys_dup2(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uin
     n->kind = o->kind;
     n->node = o->node;
     n->off = o->off;
+    n->flags = o->flags;
     if (o->kind == FD_VNODE && o->node)
         o->node->refcount++;
     else if (o->kind == FD_PIPE && o->node)
@@ -1487,39 +1604,40 @@ static uint64_t sys_chown(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, ui
     return 0;
 }
 
-void syscall_deliver_signals(void)
+/* Core signal delivery against an explicit user register context (`ctx`,
+   whose rip/cs/rflags/rsp/ss are the interrupted user frame and whose GP
+   fields are the interrupted user registers). Rewrites `ctx` in place to
+   point at the handler. Returns non-zero if a signal was consumed (the caller
+   must write `ctx` back). For SIGKILL/default signals the process is torn
+   down (sched_exit does not return). */
+static int deliver_signal_ctx(struct thread *t, struct sigframe *ctx)
 {
-    struct thread *t = sched_current();
-    if (!t || !t->syscall_iret)
-        return;
     uint64_t pending = t->sig_pending & ~t->sig_mask;
     if (!pending)
-        return;
+        return 0;
     int sig = 0;
     for (int i = 1; i < NSIG; i++)
         if (pending & ((uint64_t)1 << i)) { sig = i; break; }
     if (!sig)
-        return;
+        return 0;
 
     t->sig_pending &= ~((uint64_t)1 << sig);
     struct sigaction *sa = &t->sig_actions[sig];
 
-    if (sig == SIGKILL) { sched_exit(137); return; }
+    if (sig == SIGKILL) { sched_exit(137); return 1; }
 
     if (sa->sa_handler == SIG_DFL)
     {
         if (sig != SIGCHLD && sig != SIGCONT)
             sched_exit(128 + sig);
-        return;
+        return 1;
     }
     if (sa->sa_handler == SIG_IGN)
-        return;
+        return 1;
     if (!sa->sa_restorer)
-        return;
+        return 1;
 
-    uint64_t *frame = t->syscall_iret;
-    uint64_t u_rsp = frame[3];
-
+    uint64_t u_rsp = ctx->rsp;
     size_t fsz = sizeof(struct sigframe);
     uint64_t new_rsp = u_rsp - fsz - 8;
 
@@ -1529,27 +1647,67 @@ void syscall_deliver_signals(void)
     if (!user_range_ok(new_rsp, fsz + 8, 1))
     {
         sched_exit(139);
-        return;
+        return 1;
     }
     struct sigframe *sf = (struct sigframe *)(new_rsp + 8);
-
-    sf->rax = frame[-1]; sf->rdi = frame[-2]; sf->rsi = frame[-3];
-    sf->rdx = frame[-4]; sf->r10 = frame[-5]; sf->r8 = frame[-6];
-    sf->r9  = frame[-7]; sf->rbx = frame[-8]; sf->rbp = frame[-9];
-    sf->r12 = frame[-10]; sf->r13 = frame[-11]; sf->r14 = frame[-12];
-    sf->r15 = frame[-13];
-    sf->rip = frame[0]; sf->cs = frame[1]; sf->rflags = frame[2];
-    sf->rsp = frame[3]; sf->ss = frame[4];
+    *sf = *ctx;
     sf->oldmask = t->sig_mask;
 
     *(uint64_t *)new_rsp = (uint64_t)sa->sa_restorer;
 
     t->sig_mask |= (1ULL << sig);
 
-    frame[0] = (uint64_t)sa->sa_handler;
-    frame[3] = new_rsp;
-    frame[-2] = (uint64_t)sig;
+    ctx->rip = (uint64_t)sa->sa_handler;
+    ctx->rsp = new_rsp;
+    ctx->rdi = (uint64_t)sig;
+    return 1;
 }
+
+void syscall_deliver_signals(void)
+{
+    struct thread *t = sched_current();
+    if (!t || !t->syscall_iret)
+        return;
+    uint64_t *frame = t->syscall_iret;
+    struct sigframe ctx;
+    ctx.rax=frame[-1]; ctx.rdi=frame[-2]; ctx.rsi=frame[-3]; ctx.rdx=frame[-4];
+    ctx.r10=frame[-5]; ctx.r8=frame[-6];  ctx.r9=frame[-7];  ctx.rbx=frame[-8];
+    ctx.rbp=frame[-9]; ctx.r12=frame[-10]; ctx.r13=frame[-11]; ctx.r14=frame[-12]; ctx.r15=frame[-13];
+    ctx.rip=frame[0]; ctx.cs=frame[1]; ctx.rflags=frame[2]; ctx.rsp=frame[3]; ctx.ss=frame[4];
+    if (deliver_signal_ctx(t, &ctx))
+    {
+        frame[-1]=ctx.rax; frame[-2]=ctx.rdi; frame[-3]=ctx.rsi; frame[-4]=ctx.rdx;
+        frame[-5]=ctx.r10; frame[-6]=ctx.r8;  frame[-7]=ctx.r9;  frame[-8]=ctx.rbx;
+        frame[-9]=ctx.rbp; frame[-10]=ctx.r12; frame[-11]=ctx.r13; frame[-12]=ctx.r14; frame[-13]=ctx.r15;
+        frame[0]=ctx.rip; frame[1]=ctx.cs; frame[2]=ctx.rflags; frame[3]=ctx.rsp; frame[4]=ctx.ss;
+    }
+}
+
+/* Deliver pending signals to the current thread when a device IRQ (the timer)
+   interrupted it in user mode, so SIGINT/SIGKILL break a CPU-bound loop that
+   makes no syscalls (issue #30). `ptr` is the raw isr_frame from isr.S. */
+void kernel_deliver_signals_user(void *ptr)
+{
+    struct isr_frame *f = (struct isr_frame *)ptr;
+    struct thread *t = sched_current();
+    if (!t || !f)
+        return;
+    if ((f->cs & 3) == 0)
+        return;   /* interrupted kernel mode: the syscall-return path handles it */
+    struct sigframe ctx;
+    ctx.rax=f->rax; ctx.rdi=f->rdi; ctx.rsi=f->rsi; ctx.rdx=f->rdx;
+    ctx.r10=f->r10; ctx.r8=f->r8;   ctx.r9=f->r9;   ctx.rbx=f->rbx;
+    ctx.rbp=f->rbp; ctx.r12=f->r12; ctx.r13=f->r13; ctx.r14=f->r14; ctx.r15=f->r15;
+    ctx.rip=f->rip; ctx.cs=f->cs; ctx.rflags=f->rflags; ctx.rsp=f->rsp; ctx.ss=f->ss;
+    if (deliver_signal_ctx(t, &ctx))
+    {
+        f->rax=ctx.rax; f->rdi=ctx.rdi; f->rsi=ctx.rsi; f->rdx=ctx.rdx;
+        f->r10=ctx.r10; f->r8=ctx.r8;   f->r9=ctx.r9;   f->rbx=ctx.rbx;
+        f->rbp=ctx.rbp; f->r12=ctx.r12; f->r13=ctx.r13; f->r14=ctx.r14; f->r15=ctx.r15;
+        f->rip=ctx.rip; f->cs=ctx.cs; f->rflags=ctx.rflags; f->rsp=ctx.rsp; f->ss=ctx.ss;
+    }
+}
+
 
 /* ---- IPC channels (Phase 11) ---- */
 #define IPC_CHANS 16
@@ -1797,6 +1955,86 @@ static uint64_t sys_nanosleep(uint64_t a1, uint64_t a2, uint64_t a3,
     return 0;
 }
 
+/* ---- file positioning / positional I/O (issue #28) ---- */
+
+static uint64_t sys_lseek(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    int fd = (int)a1;
+    long offset = (long)a2;
+    int whence = (int)a3;
+    if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
+        return (uint64_t)-EINVAL;
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    if (!t || fd < 0 || fd >= MAX_FD || !t->fds[fd].used)
+        return (uint64_t)-EBADF;
+    struct vfs_file *f = &t->fds[fd];
+    if (f->kind == FD_VNODE)
+    {
+        long base = 0;
+        if (whence == SEEK_SET)
+            base = 0;
+        else if (whence == SEEK_CUR)
+            base = (long)f->off;
+        else if (whence == SEEK_END)
+            base = (long)f->node->size;
+        long pos = base + offset;
+        if (pos < 0)
+            return (uint64_t)-EINVAL;
+        f->off = (size_t)pos;
+        return (uint64_t)f->off;
+    }
+    return (uint64_t)-ESPIPE;
+}
+
+static uint64_t sys_pread(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a5;
+    int fd = (int)a1;
+    char *buf = (char *)a2;
+    size_t len = (size_t)a3;
+    long off = (long)a4;
+    if (off < 0)
+        return (uint64_t)-EINVAL;
+    if (len && !user_range_ok((uint64_t)buf, len, 1))
+        return (uint64_t)-EFAULT;
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    if (!t || fd < 0 || fd >= MAX_FD || !t->fds[fd].used)
+        return (uint64_t)-EBADF;
+    struct vfs_file *f = &t->fds[fd];
+    if (f->kind != FD_VNODE || !f->node)
+        return (uint64_t)-ESPIPE;
+    if (vfs_check_perms(f->node, VFS_MAY_READ) != 0)
+        return (uint64_t)-EACCES;
+    return (uint64_t)vfs_read(f->node, (size_t)off, buf, len);
+}
+
+static uint64_t sys_pwrite(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a5;
+    int fd = (int)a1;
+    const char *s = (const char *)a2;
+    size_t len = (size_t)a3;
+    long off = (long)a4;
+    if (off < 0)
+        return (uint64_t)-EINVAL;
+    if (len && !user_range_ok((uint64_t)s, len, 0))
+        return (uint64_t)-EFAULT;
+    vfs_ensure_proc();
+    struct thread *t = sched_current();
+    if (!t || fd < 0 || fd >= MAX_FD || !t->fds[fd].used)
+        return (uint64_t)-EBADF;
+    struct vfs_file *f = &t->fds[fd];
+    if (f->kind != FD_VNODE || !f->node)
+        return (uint64_t)-ESPIPE;
+    long w = vfs_write(f->node, (size_t)off, s, len);
+    if (w < 0)
+        return (uint64_t)(size_t)w;
+    return (uint64_t)w;
+}
+
 static syscall_fn syscall_table[] = {
     [SYS_PRINT]  = sys_print,
     [SYS_YIELD]  = sys_yield,
@@ -1861,7 +2099,22 @@ static syscall_fn syscall_table[] = {
     [SYS_TIME]          = sys_time,
     [SYS_GETTIMEOFDAY]  = sys_gettimeofday,
     [SYS_NANOSLEEP]     = sys_nanosleep,
+    /* file positioning / positional I/O (issue #28) */
+    [SYS_LSEEK]         = sys_lseek,
+    [SYS_PREAD]         = sys_pread,
+    [SYS_PWRITE]        = sys_pwrite,
+    /* path-based stat (issue #28) */
+    [SYS_STAT]          = sys_stat,
+    [SYS_RMDIR]         = sys_rmdir,
+    [SYS_AUTHENTICATE]  = sys_authenticate,
 };
+
+/* ABI guard (issue #33): the table must cover every number defined in the
+   shared syscall_numbers.h, otherwise a handler is missing for a syscall the
+   userspace libc already exposes. */
+_Static_assert(sizeof(syscall_table) / sizeof(syscall_fn) >= __SYS_LAST,
+               "syscall table does not cover all syscall numbers");
+
 static int syscall_count = sizeof(syscall_table) / sizeof(syscall_fn);
 
 uint64_t syscall_dispatch(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3,
