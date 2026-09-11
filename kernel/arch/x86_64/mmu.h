@@ -12,8 +12,37 @@
 #define X86_PTE_PCD     (1UL << 4)
 #define X86_PTE_ACCESSED (1UL << 5)
 #define X86_PTE_DIRTY   (1UL << 6)
+/* Bit 7 is context-sensitive: PS (huge) in PDP/PD entries, PAT in leaf PTEs.
+   X86_PTE_HUGE and X86_PTE_PAT share the encoding; use the right alias for
+   the level you are writing. */
 #define X86_PTE_HUGE    (1UL << 7)
+#define X86_PTE_PAT     (1UL << 7)
+/* PAT bit for 2 MiB / 1 GiB large pages (bit 12). PTE huge + PAT_LARGE,
+   with PCD=PWT=0, selects PAT index 4 (WC when PAT MSR is in the standard
+   UEFI layout). */
+#define X86_PTE_PAT_LARGE (1UL << 12)
 #define X86_PTE_GLOBAL  (1UL << 8)
 #define X86_PTE_NX      (1UL << 63)
+
+#define IA32_PAT_MSR 0x277u
+#define PAT_UC    0x00u
+#define PAT_WC    0x01u
+#define PAT_WT    0x04u
+#define PAT_WP    0x05u
+#define PAT_WB    0x06u
+#define PAT_UC_MINUS 0x07u
+
+/* Standard UEFI PAT slot for Write-Combining (PA4 = binary 100:
+   PAT=1, PCD=0, PWT=0). */
+#define PAT_WC_INDEX 4
+
+/* Ensures IA32_PAT holds a WC (01h) entry; idempotent. Safe to call before
+   vmm_init() (the early GOP mapping does so). */
+void mmu_pat_init(void);
+/* PAT slot selected for WC (valid after mmu_pat_init()). */
+int mmu_pat_wc_index(void);
+/* Non-zero when the CPU/firmware combination actually provides WC. When
+   PAT itself is unsupported every WC request safely degrades to UC. */
+int mmu_pat_has_wc(void);
 
 #endif

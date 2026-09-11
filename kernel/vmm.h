@@ -16,6 +16,7 @@
 #define MMU_HUGE     (1u << 3)
 #define MMU_GLOBAL   (1u << 4)
 #define MMU_UNCACHED (1u << 5)
+#define MMU_WC       (1u << 6)
 
 #ifdef __cplusplus
 extern "C" {

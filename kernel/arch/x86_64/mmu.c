@@ -38,6 +38,96 @@ static inline void flush_tlb(void)
     __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" : : : "rax", "memory");
 }
 
+static inline void __attribute__((unused)) invlpg(uint64_t addr)
+{
+    __asm__ volatile("invlpg (%0)" : : "r"(addr) : "memory");
+}
+
+static inline uint64_t pat_rdmsr(uint32_t msr)
+{
+    uint32_t lo, hi;
+    __asm__ volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+static inline void pat_wrmsr(uint32_t msr, uint64_t value)
+{
+    uint32_t lo = (uint32_t)value;
+    uint32_t hi = (uint32_t)(value >> 32);
+    __asm__ volatile("wrmsr" : : "a"(lo), "d"(hi), "c"(msr) : "memory");
+}
+
+static inline void pat_cpuid(uint32_t leaf, uint32_t *eax, uint32_t *ebx,
+                             uint32_t *ecx, uint32_t *edx)
+{
+    __asm__ volatile("cpuid"
+                     : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+                     : "a"(leaf));
+}
+
+/* PAT slot currently used for Write-Combining. Defaults to PA4 (binary 100:
+   PAT=1, PCD=0, PWT=0), the conventional UEFI WC slot. pat_init() verifies
+   IA32_PAT and relocates this if firmware placed WC elsewhere. */
+static int pat_wc_index = PAT_WC_INDEX;
+static int pat_initialized = 0;
+static int pat_available = 0;
+
+int mmu_pat_wc_index(void)
+{
+    return pat_wc_index;
+}
+
+int mmu_pat_has_wc(void)
+{
+    return pat_available;
+}
+
+/* Step 1 of WC enablement: make sure IA32_PAT (0x277) has a 01h (WC) entry.
+   UEFI firmware normally already programs PA4=WC; if no slot holds WC we
+   program PA4 ourselves, preserving the other seven slots. Idempotent so it
+   can run both before the early GOP mapping (which happens in mb2_parse,
+   ahead of vmm_init) and again from mmu_arch_init(). */
+void mmu_pat_init(void)
+{
+    if (pat_initialized)
+        return;
+    pat_initialized = 1;
+
+    uint32_t eax, ebx, ecx, edx;
+    pat_cpuid(1, &eax, &ebx, &ecx, &edx);
+    if (!(edx & (1u << 16)))
+    {
+        klog("PAT: CPUID reports no PAT support, WC unavailable\n");
+        return;
+    }
+
+    uint64_t pat = pat_rdmsr(IA32_PAT_MSR);
+    klog("PAT: initial=0x%lx\n", (unsigned long)pat);
+
+    for (int i = 0; i < 8; i++)
+    {
+        uint8_t t = (pat >> (i * 8)) & 0xFF;
+        if (t == PAT_WC)
+        {
+            pat_wc_index = i;
+            pat_available = 1;
+            klog("PAT: WC already at PA%d\n", i);
+            return;
+        }
+    }
+
+    /* No WC slot: install WC at PA4, keep PA0..PA3,PA5..PA7 as-is. */
+    pat &= ~(0xFFULL << (PAT_WC_INDEX * 8));
+    pat |= ((uint64_t)PAT_WC << (PAT_WC_INDEX * 8));
+    __asm__ volatile("wbinvd" ::: "memory");
+    pat_wrmsr(IA32_PAT_MSR, pat);
+    flush_tlb();
+    pat_wc_index = PAT_WC_INDEX;
+    pat_available = 1;
+    klog("PAT: programmed WC at PA%d pat=0x%lx\n",
+           PAT_WC_INDEX, (unsigned long)pat_rdmsr(IA32_PAT_MSR));
+}
+
 static uint64_t to_x86_flags(uint32_t flags)
 {
     uint64_t x = X86_PTE_PRESENT;
@@ -45,6 +135,26 @@ static uint64_t to_x86_flags(uint32_t flags)
     if (flags & MMU_USER)     x |= X86_PTE_USER;
     if (flags & MMU_HUGE)     x |= X86_PTE_HUGE;
     if (flags & MMU_GLOBAL)   x |= X86_PTE_GLOBAL;
+    /* Step 2 of WC enablement: PAT index 4 (100b) selects WC.
+       4 KiB PTE: PAT=bit7, PCD=0, PWT=0.
+       2 MiB PDE: PAT=bit12 (+PS bit7 from MMU_HUGE), PCD=0, PWT=0.
+       MMU_UNCACHED (PWT|PCD, PAT=0 -> index 3 = UC) may combine with WC;
+       that yields index 7, which firmware leaves as UC -- a safe fallback
+       for contradictory requests. Without PAT support WC degrades to UC. */
+    if (flags & MMU_WC)
+    {
+        if (pat_available || !pat_initialized)
+        {
+            if (flags & MMU_HUGE)
+                x |= X86_PTE_PAT_LARGE;
+            else
+                x |= X86_PTE_PAT;
+        }
+        else
+        {
+            x |= X86_PTE_PWT | X86_PTE_PCD;
+        }
+    }
     if (flags & MMU_UNCACHED) x |= X86_PTE_PWT | X86_PTE_PCD;
     if (flags & MMU_NX)       x |= X86_PTE_NX;
     return x;
@@ -65,9 +175,17 @@ static int split_huge(uint64_t *entry, uint64_t base)
 
     uint64_t *pt = (uint64_t *)(uintptr_t)page;
     uint64_t phys = old & ~0xFFF;
+    /* Preserve PWT/PCD (bits 3-4) and translate a large-page WC request
+       (PAT_LARGE, bit 12) into the small-page PAT encoding (bit 7).
+       Bit 7 of the old entry is PS, not PAT, so clear it first. */
+    int was_wc_large = (old & X86_PTE_PAT_LARGE) != 0;
     uint64_t flags = old & 0x1FF;
     flags &= ~X86_PTE_HUGE;
     flags &= ~X86_PTE_GLOBAL;
+    if (was_wc_large)
+        flags |= X86_PTE_PAT;
+    if (old & X86_PTE_NX)
+        flags |= X86_PTE_NX;
 
     for (int i = 0; i < 512; i++)
         pt[i] = (phys + i * PAGE_SIZE) | flags;
@@ -160,6 +278,8 @@ struct mmu_root *mmu_kernel_root(void)
 
 void mmu_arch_init(void)
 {
+    /* Program PAT before any WC mapping is created. */
+    mmu_pat_init();
     kernel_root = (struct mmu_root *)(uintptr_t)read_cr3();
 
     uint64_t *pd = pd_table;
@@ -471,14 +591,29 @@ void mmu_switch(struct mmu_root *root)
 
 void *mmu_map_framebuffer(uintptr_t phys, size_t size)
 {
+    /* The GOP framebuffer lives behind PCIe: WB/WT caching turns every
+       4-byte pixel store into a 64-byte read-modify-write over the bus.
+       Map it WC (PAT=1, PCD=0, PWT=0 -> index 4) so stores accumulate in
+       the CPU's 64-byte WC buffers and burst out in one PCIe transaction.
+       Ensure the PAT slot exists even when this runs before vmm_init(). */
+    mmu_pat_init();
     uintptr_t start = phys & ~(uintptr_t)0x1FFFFF;
     uintptr_t end = phys + size;
     uintptr_t first_virt = 0;
 
+    /* Drop any stale cached lines from the previous WB/WT mapping before
+       switching the memory type. */
+    __asm__ volatile("wbinvd" ::: "memory");
+
     for (uintptr_t p = start; p < end; p += 0x200000)
     {
         unsigned int idx = (p >> 21) & 0x1FF;
-        pd_table2[idx] = p | X86_PTE_PRESENT | X86_PTE_WRITE | X86_PTE_HUGE | X86_PTE_PWT;
+        uint64_t entry = p | X86_PTE_PRESENT | X86_PTE_WRITE | X86_PTE_HUGE;
+        if (pat_available)
+            entry |= X86_PTE_PAT_LARGE; /* WC: PAT=1, PCD=0, PWT=0 */
+        else
+            entry |= X86_PTE_PWT | X86_PTE_PCD; /* no PAT: safe UC fallback */
+        pd_table2[idx] = entry;
         if (p == start)
             first_virt = 0x80000000ULL + idx * 0x200000ULL;
     }

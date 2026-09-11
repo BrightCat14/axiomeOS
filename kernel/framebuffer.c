@@ -31,6 +31,14 @@ static inline uint8_t *fb_ptr(void)
     return fb.back_buffer ? fb.back_buffer : (uint8_t *)fb.addr;
 }
 
+/* WC buffers retire on full fill or on SFENCE. Without a fence the last
+   partial 64-byte buffer can sit in the CPU indefinitely, so every burst
+   of WC stores must close with one. */
+static inline void fb_sfence(void)
+{
+    __asm__ volatile("sfence" ::: "memory");
+}
+
 void fb_init(uintptr_t addr, uint32_t width, uint32_t height,
              uint32_t pitch, uint8_t bpp, uint8_t type)
 {
@@ -45,17 +53,28 @@ void fb_init(uintptr_t addr, uint32_t width, uint32_t height,
     fb.fg_color = 0x00FFFFFF;
     fb.bg_color = 0x00000000;
     fb.back_buffer = 0;
-    fb.present = (addr != 0 && width > 0 && height > 0);
+    /* Keep present=0 while remapping: mmu_map_framebuffer() runs before
+       vmm_init() and must not let a concurrent printk recurse into
+       fb_putchar() with fb.addr still pointing at the unmapped phys addr
+       (that #PF with only the boot null-IDT installed triple-faults). */
+    fb.present = 0;
     fb.num_cols = width / FONT_WIDTH;
     fb.num_rows = height / FONT_HEIGHT;
     fb.dirty = 0;
     fb.dirty_w = 0;
 
-    if (fb.present)
+    if (addr != 0 && width > 0 && height > 0)
     {
+        /* mmu_map_framebuffer() maps this WC (PAT index 4) so pixel stores
+           burst over PCIe instead of read-modify-writing per cache line. */
         fb.addr = (volatile uint8_t *)mmu_map_framebuffer(
             addr, (size_t)height * pitch);
-        __builtin_memset((void *)fb.addr, 0, (size_t)height * pitch);
+        if (fb.addr)
+        {
+            __builtin_memset((void *)fb.addr, 0, (size_t)height * pitch);
+            fb_sfence();
+            fb.present = 1;
+        }
     }
 }
 
@@ -180,8 +199,37 @@ void fb_flush(void)
     if (!fb.present || !fb.back_buffer || !fb.dirty)
         return;
 
-    size_t sz = (size_t)fb.pitch * fb.height;
-    __builtin_memcpy((void *)fb.addr, fb.back_buffer, sz);
+    /* Copy only the dirty rectangle: a full-screen copy per glyph would
+       push megabytes over PCIe for every character. WC stores burst per
+       cache line; SFENCE retires the trailing partial buffer. */
+    uint32_t bpp_bytes = (uint32_t)(fb.bpp / 8);
+    if (bpp_bytes == 0)
+        bpp_bytes = 4;
+    uint32_t x0 = fb.dirty_x;
+    uint32_t y0 = fb.dirty_y;
+    uint32_t w = fb.dirty_w;
+    uint32_t h = fb.dirty_h;
+
+    if (x0 >= fb.width || y0 >= fb.height)
+    {
+        fb.dirty = 0;
+        fb.dirty_w = 0;
+        return;
+    }
+    if (x0 + w > fb.width)
+        w = fb.width - x0;
+    if (y0 + h > fb.height)
+        h = fb.height - y0;
+
+    uint8_t *dst_base = (uint8_t *)fb.addr;
+    uint8_t *src_base = fb.back_buffer;
+    size_t row_bytes = (size_t)w * bpp_bytes;
+    size_t x_off = (size_t)x0 * bpp_bytes;
+    for (uint32_t y = y0; y < y0 + h; y++)
+        __builtin_memcpy(dst_base + (size_t)y * fb.pitch + x_off,
+                         src_base + (size_t)y * fb.pitch + x_off,
+                         row_bytes);
+    fb_sfence();
 
     fb.dirty = 0;
     fb.dirty_w = 0;
@@ -237,6 +285,8 @@ void fb_write(const char *s)
         fb_putchar(*s++);
     if (fb.back_buffer)
         fb_flush();
+    else
+        fb_sfence();
 }
 
 void fb_scroll(void)
@@ -247,6 +297,8 @@ void fb_scroll(void)
     fb.cursor_y = fb.num_rows - 1;
     if (fb.back_buffer)
         fb_flush();
+    else
+        fb_sfence();
 }
 
 void fb_clear(void)
@@ -261,6 +313,8 @@ void fb_clear(void)
     mark_dirty(0, 0, fb.width, fb.height);
     if (fb.back_buffer)
         fb_flush();
+    else
+        fb_sfence();
 }
 
 void fb_set_color(uint32_t fg, uint32_t bg)
@@ -294,4 +348,6 @@ void fb_putchar_at(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
     draw_glyph(c, x, y, fg, bg);
     if (fb.back_buffer)
         fb_flush();
+    else
+        fb_sfence();
 }
