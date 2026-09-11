@@ -76,6 +76,11 @@ int device_enumerate(struct device **out, int max)
  * ---------------------------------------------------------------- */
 int driver_probe_pci(struct pci_device *pdev)
 {
+    /* Already claimed by a driver. Probing again would re-run hardware
+       initialisation (and re-print "bound"): every .kxt init and every
+       rescan walks the whole PCI list, so this must be a silent no-op. */
+    if (pdev->owner)
+        return 1;
     for (struct driver *d = g_drivers; d; d = d->next)
     {
         int v_ok = (d->vendor == DRV_ANY) || (d->vendor == pdev->vendor);
@@ -89,6 +94,7 @@ int driver_probe_pci(struct pci_device *pdev)
             int result = d->probe ? d->probe(pdev) : 0;
             if (result < 0)
                 continue;
+            pdev->owner = d;
             printk("DRV: %s bound to %x:%x\n", d->name, (int)pdev->vendor, (int)pdev->device);
             return 1;
         }
@@ -102,11 +108,32 @@ void driver_probe_all(void)
         driver_probe_pci(p);
 }
 
-/* 12.9 Hotplug: re-enumerate the PCI bus and re-probe. Idempotent because
-   every probe guards against double device registration. */
+/* 12.9 Hotplug: re-enumerate the PCI bus and probe only what is new.
+   pci_init() rebuilds the device list from scratch, so owners recorded on
+   the old structs are re-attached by bus/dev/func first — otherwise every
+   rescan would re-run all hardware init (and re-print every "bound" line).
+   Functions that appear for the first time stay unclaimed and get probed. */
 void driver_rescan(void)
 {
+    struct { uint8_t bus, dev, func; struct driver *owner; } keep[64];
+    int n = 0;
+    for (struct pci_device *p = pci_first(); p && n < 64; p = p->next)
+    {
+        if (!p->owner)
+            continue;
+        keep[n].bus = p->bus; keep[n].dev = p->dev;
+        keep[n].func = p->func; keep[n].owner = p->owner;
+        n++;
+    }
     pci_init();
+    for (struct pci_device *p = pci_first(); p; p = p->next)
+        for (int i = 0; i < n; i++)
+            if (p->bus == keep[i].bus && p->dev == keep[i].dev &&
+                p->func == keep[i].func)
+            {
+                p->owner = keep[i].owner;
+                break;
+            }
     driver_probe_all();
 }
 
@@ -275,15 +302,11 @@ static int vga_probe(struct pci_device *pdev)
     return 0;
 }
 
-/* NOTE: the NVMe driver ships as a loadable module (kernel/modules/nvme.kxt)
-   and is loaded at runtime via the .kxt framework (kxtload).  The built-in
-   stub that used to claim class 0x01/0x08 was removed so the real driver is
-   the sole owner of any NVMe controller.
-
-   The same applies to AHCI (serial ATA): the SATA driver ships as a loadable
-   module (kernel/modules/sata.kxt, class 0x01/subclass 0x06).  The built-in
-   "ahci" stub that used to claim the controller (and register a bogus usb0
-   node) was removed so the real driver is the sole owner. */
+/* NOTE: the NVMe and AHCI (SATA) drivers are built into the kernel image
+   (modules/nvme.c and modules/sata.c compiled with AXIOME_BUILTIN_DRIVER,
+   registered below). They used to ship as loadable .kxt modules; moving them
+   in-kernel guarantees the boot disk drivers are present before init runs,
+   with no dependence on /System/Extensions or the module loader. */
 
 static struct driver ata_drv = {
     .name = "ata-ide", .vendor = DRV_ANY, .device = DRV_ANY,
@@ -310,6 +333,8 @@ void driver_init(void)
     driver_register(&ata_drv);
     driver_register(&xhci_drv);
     driver_register(&vga_drv);
+    sata_driver_init();
+    nvme_driver_init();
 
     /* Static character devices (no PCI dependence). */
     struct device *z = (struct device *)kmalloc(sizeof(struct device));

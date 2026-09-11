@@ -25,6 +25,11 @@ CXXFLAGS += -fno-use-cxa-atexit -fno-unwind-tables -fno-asynchronous-unwind-tabl
 LDFLAGS = -nostdlib -T $(REPO_ROOT)/linker.ld
 
 C_SRCS := $(wildcard *.c) $(wildcard arch/x86_64/*.c)
+# Built-in storage drivers: their sources live under modules/ but they link
+# into kernel.elf (not .kxt) and register via driver_init(). The define
+# switches their packaging tail from MODULE_INIT to *_driver_init().
+C_SRCS += modules/sata.c modules/nvme.c
+$(BUILD_DIR)/modules/sata.o $(BUILD_DIR)/modules/nvme.o: CFLAGS += -DAXIOME_BUILTIN_DRIVER
 CXX_SRCS := $(wildcard hal/*.cpp) $(wildcard arch/x86_64/hal/*.cpp)
 ASM_SRCS := $(wildcard arch/x86_64/*.S)
 C_OBJS := $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SRCS))

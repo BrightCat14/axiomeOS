@@ -881,7 +881,13 @@ static int sata_probe(struct pci_device *pdev)
 }
 
 /* ---------------------------------------------------------------------------
- * Module packaging (.kxt)
+ * Packaging: loadable .kxt module -or- built-in kernel driver.
+ *
+ * With AXIOME_BUILTIN_DRIVER (set by kernel/Makefile) this file is linked
+ * into kernel.elf: driver_init() calls sata_driver_init() to register, and
+ * the framework's single probe pass binds the controller. Unload support
+ * is compiled out — built-ins cannot be unloaded.
+ * Without it, this builds as sata.kxt: the loader calls module_init().
  * ------------------------------------------------------------------------- */
 
 static struct driver sata_drv = {
@@ -893,16 +899,24 @@ static struct driver sata_drv = {
     .probe       = sata_probe,
 };
 
+#ifdef AXIOME_BUILTIN_DRIVER
+void sata_driver_init(void)
+{
+    driver_register(&sata_drv);
+}
+#else
 static int sata_mod_init(void)
 {
     driver_register(&sata_drv);
-    /* Probe any AHCI controller enumerated before this module loaded. */
-    for (struct pci_device *p = pci_first(); p; p = p->next)
-        driver_probe_pci(p);
+    /* Probe any AHCI controller enumerated before this module loaded.
+       Already-owned devices are skipped by the framework. */
+    driver_probe_all();
     printk("SATA: module initialised\n");
     return 0;
 }
+#endif
 
+#ifndef AXIOME_BUILTIN_DRIVER
 static void sata_mod_exit(void)
 {
     struct sata_softc *s = &g_sata;
@@ -936,6 +950,9 @@ static void sata_mod_exit(void)
     s->ready = 0;
     printk("SATA: module unloaded\n");
 }
+#endif /* !AXIOME_BUILTIN_DRIVER */
 
+#ifndef AXIOME_BUILTIN_DRIVER
 MODULE_INIT(sata_mod_init);
 MODULE_EXIT(sata_mod_exit);
+#endif

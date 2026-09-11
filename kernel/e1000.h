@@ -129,6 +129,12 @@ struct e1000_softc {
     /* IRQ */
     uint8_t irq;
 
+    /* PCI coords of the bound function + claimed flag. This driver owns a
+       single static softc, so a second probe of the same NIC is a silent
+       no-op and a different NIC is refused (returns -1). */
+    uint8_t pci_bus, pci_dev, pci_func;
+    int bound;
+
     struct netdev netdev;  /* generic netdev this driver feeds */
 };
 

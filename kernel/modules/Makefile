@@ -11,7 +11,9 @@ CFLAGS := -ffreestanding -nostdlib -nostartfiles -mno-red-zone -mcmodel=large \
           -mno-mmx -mno-sse -mno-sse2 -O2 -g -pipe -Wall -Wextra \
           -I$(REPO_ROOT) -I$(REPO_ROOT)/kernel
 
-MODULES := e1000.kxt hello.kxt nvme.kxt sata.kxt
+# e1000 + hello stay loadable. sata/nvme sources live here too but link
+# into kernel.elf as built-ins (see kernel/Makefile + AXIOME_BUILTIN_DRIVER).
+MODULES := e1000.kxt hello.kxt
 
 .PHONY: all clean
 all: $(MODULES)

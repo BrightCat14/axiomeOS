@@ -56,4 +56,10 @@ int  device_enumerate(struct device **out, int max);
 /* Built-in drivers + framework bootstrap. */
 void driver_init(void);
 
+/* Built-in storage drivers. Their sources live under modules/ but are linked
+   into kernel.elf (compiled with AXIOME_BUILTIN_DRIVER); these entry points
+   register them with the framework from driver_init(). */
+void sata_driver_init(void);
+void nvme_driver_init(void);
+
 #endif
