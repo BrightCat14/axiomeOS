@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 /* Portable description of the environment handed to the kernel by the
-   bootloader. Populated by the architecture boot glue (e.g. mb2.c on
+   bootloader. Populated by the architecture boot glue (e.g. axboot.c on
    x86_64). Portable kernel code reads this instead of reaching into
    bootloader structures directly, so a different boot protocol (or a
    different architecture) only has to fill this struct. */

@@ -14,8 +14,9 @@ axiomeOS requires:
 - Binutils for `x86_64-elf`
 - QEMU
 - OVMF (UEFI firmware)
-- GRUB utilities
+- gnu-efi (UEFI bootloader library)
 - mtools
+- xorriso
 - Python 3
 - GNU Make
 
@@ -40,9 +41,7 @@ sudo apt install -y \
     python3 \
     qemu-system-x86 \
     ovmf \
-    grub-common \
-    grub-pc-bin \
-    grub-efi-amd64-bin \
+    gnu-efi \
     xorriso \
     mtools \
     gdb
@@ -91,6 +90,16 @@ ls /usr/share/ovmf/OVMF.fd
 ```
 
 If the file exists, the emulator is ready.
+
+---
+
+# UEFI bootloader (axboot)
+
+The `bootloader/` directory builds `BOOTX64.EFI` with the same
+`x86_64-elf` cross toolchain, linked against the system gnu-efi
+(`crt0-efi-x86_64.o`, `libgnuefi.a`, `elf_x86_64_efi.lds`). Only the final
+PE32+ conversion uses the host `objcopy` (the cross objcopy has no PE
+target). No other host dependencies are involved.
 
 ---
 

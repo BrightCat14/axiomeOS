@@ -123,7 +123,7 @@ To add, say, RISC-V:
 
 1. **Boot glue** — bring the CPU to the kernel, pass the boot environment:
    fill `hal_bootinfo` (framebuffer, mmap, etc.) exactly like
-   `kernel/mb2.c` does on x86_64.
+   `kernel/axboot.c` does on x86_64.
 2. **Backends** — create `kernel/arch/riscv64/hal/` with one `.cpp` per
    interface (`riscv_portio.cpp`, `riscv_cpu.cpp`, ...) or, for memory-mapped
    SoCs, implement `IMmio` and leave `IPortIo` as a stub.
@@ -174,5 +174,5 @@ EOI ordering of the old hardcoded dispatch.
 | IRQ masking | `ioapic_mask()` in drivers | `hal_irq_mask()` |
 | MMIO mapping | `pd_table3[]` pokes in apic/ioapic | `hal_mmio_map_phys()` (`X86Mmio`) |
 | CPU control | `hlt`/`sti`/`cli`/CR2 inline asm | `hal_cpu_*()` (`X86Cpu`) |
-| Boot environment | multiboot2 structs only | also mirrors into `hal_bootinfo` |
+| Boot environment | axboot structs only | also mirrors into `hal_bootinfo` |
 

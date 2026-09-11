@@ -1,6 +1,6 @@
 # axiomeOS — Directory Structure
 
-> Target: x86_64, GRUB multiboot2, ELF64
+> Target: x86_64, UEFI + custom axboot handoff, ELF64
 > Toolchain: x86_64-elf-gcc (cross-compiler from WSL)
 
 ---
@@ -9,6 +9,13 @@
 
 ```
 axiomeOS/
+├── bootloader/             # Custom UEFI loader (gnu-efi BOOTX64.EFI, axboot)
+│   ├── main.c              # efi_main: GOP → ACPI → ESP → ELF → EBS → jump
+│   ├── gop.c / mmap.c      # framebuffer capture / memory-map conversion
+│   ├── acpi.c / fs.c       # RSDP discovery / \kernel.elf loading
+│   ├── elf.c / boot.c      # PT_LOAD placement / page tables + handoff
+│   └── Makefile
+├── include/                # Shared headers (axboot.h handoff protocol)
 ├── kernel/                 # Kernel source (ring 0)
 │   ├── arch/x86_64/        # CPU/architecture-specific code
 │   ├── mm/                 # Memory management
@@ -43,7 +50,6 @@ axiomeOS/
 ├── osdev_wiki/             # Local OSDev Wiki copy (git LFS recommended)
 ├── Makefile                # Top-level build orchestrator
 ├── linker.ld               # Kernel linker script (higher-half)
-├── grub.cfg                # GRUB boot configuration
 ├── AGENTS.md               # AI agent instructions
 └── README.md               # Project overview
 ```
@@ -75,7 +81,7 @@ kernel/
 │       │   ├── x86_serial.cpp
 │       │   ├── x86_mmio.cpp
 │       │   └── arch_init.cpp
-│       ├── boot.S          # Multiboot2 header + entry point
+│       ├── boot.S          # Native 64-bit axboot entry point
 │       ├── idt.c/.h        # Interrupt Descriptor Table
 │       ├── isr.S           # Interrupt service routines (assembly stubs)
 │       ├── isr_handlers.c  # Exceptions + device vector dispatch
@@ -137,9 +143,9 @@ kernel/
 ├── syscall.h
 ├── elf.c                       # ELF64 loader (for user programs)
 ├── elf.h
-├── kernel.c                    # kmain() — kernel entry point
+├── kernel.c                    # kmain(axboot_info*) — kernel entry point
 ├── kernel.h                    # Master kernel header (includes all subsystem headers)
-├── multiboot2.h                # Multiboot2 structure definitions
+├── axboot.c                    # axboot handoff parsing (mmap/fb/ACPI)
 └── Makefile                    # Kernel build rules
 ```
 
@@ -212,18 +218,17 @@ build/
 ├── kernel/
 │   ├── kernel.elf              # Final kernel binary
 │   └── *.o                     # Object files
+├── bootloader/
+│   └── BOOTX64.EFI             # UEFI bootloader binary
 ├── libc/
 │   └── libc.a                  # Static libc archive
 ├── userland/
 │   ├── init.elf
 │   ├── sh.elf
 │   └── ...
-└── isodir/                     # Staging directory for grub-mkrescue
-    ├── boot/
-    │   ├── kernel.elf
-    │   └── grub/
-    │       └── grub.cfg
-    └── ...
+├── boot.fat                    # FAT32 ESP (EFI/BOOT/BOOTX64.EFI + kernel.elf)
+├── isowork/esp.img             # El Torito boot image (= boot.fat copy)
+└── ...
 ```
 
 ---
@@ -232,7 +237,7 @@ build/
 
 | Symbol | Value | Description |
 |--------|-------|-------------|
-| `KERNEL_PHYS_BASE` | `0x200000` | Physical load address (2 MiB, GRUB default) |
+| `KERNEL_PHYS_BASE` | `0x200000` | Physical load address (2 MiB, axboot loader target) |
 | `KERNEL_VIRT_BASE` | `0xFFFFFFFF80000000` | Higher-half kernel virtual address |
 | `HHDM_OFFSET` | `-KERNEL_VIRT_BASE` | Direct physical map offset |
 | `STACK_SIZE` | `0x4000` (16 KiB) | Kernel stack size |

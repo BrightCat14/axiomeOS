@@ -3,8 +3,9 @@
 
 #include <stdint.h>
 
-/* Save the EFI system table physical address from the MB2 tag.
-   Called from mb2_parse() — does nothing except store the address. */
+/* Historical stub: EFI runtime services are not used (ExitBootServices
+   runs before the kernel starts; the CMOS RTC is read directly).
+   Kept for source compatibility; does nothing. */
 void rtc_efi_set_systable(uint64_t systable_phys);
 
 /* Map EFI pages and call GetTime() to read the RTC.
