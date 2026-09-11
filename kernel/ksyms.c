@@ -53,6 +53,7 @@ KSYM(pci_first);
 KSYM(driver_register);
 KSYM(driver_unregister);
 KSYM(driver_probe_pci);
+KSYM(driver_probe_all);
 KSYM(device_register);
 KSYM(device_find);
 

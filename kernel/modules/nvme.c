@@ -617,9 +617,10 @@ static long nvme_dev_write(struct device *d, uint64_t off, const void *buf,
 }
 
 /* ---------------------------------------------------------------------------
- * Controller shutdown (gentle)
+ * Controller shutdown (gentle). Only used by the module unload path.
  * ------------------------------------------------------------------------- */
 
+#ifndef AXIOME_BUILTIN_DRIVER
 static void nvme_shutdown(struct nvme_softc *s)
 {
     if (!s->regs)
@@ -642,6 +643,7 @@ static void nvme_shutdown(struct nvme_softc *s)
         nvme_spin(100);
     }
 }
+#endif /* !AXIOME_BUILTIN_DRIVER */
 
 /* ---------------------------------------------------------------------------
  * Probe (called by the driver framework)
@@ -839,7 +841,13 @@ cleanup:
 }
 
 /* ---------------------------------------------------------------------------
- * Module packaging (.kxt)
+ * Packaging: loadable .kxt module -or- built-in kernel driver.
+ *
+ * With AXIOME_BUILTIN_DRIVER (set by kernel/Makefile) this file is linked
+ * into kernel.elf: driver_init() calls nvme_driver_init() to register, and
+ * the framework's single probe pass binds the controller. Unload support
+ * is compiled out — built-ins cannot be unloaded.
+ * Without it, this builds as nvme.kxt: the loader calls module_init().
  * ------------------------------------------------------------------------- */
 
 static struct driver nvme_drv = {
@@ -851,16 +859,24 @@ static struct driver nvme_drv = {
     .probe       = nvme_probe,
 };
 
+#ifdef AXIOME_BUILTIN_DRIVER
+void nvme_driver_init(void)
+{
+    driver_register(&nvme_drv);
+}
+#else
+
 static int nvme_mod_init(void)
 {
     driver_register(&nvme_drv);
     /* Probe any NVMe controller enumerated before this module loaded. */
-    for (struct pci_device *p = pci_first(); p; p = p->next)
-        driver_probe_pci(p);
+    driver_probe_all();
     printk("NVMe: module initialised\n");
     return 0;
 }
+#endif
 
+#ifndef AXIOME_BUILTIN_DRIVER
 static void nvme_mod_exit(void)
 {
     struct nvme_softc *s = &g_nvme;
@@ -895,6 +911,9 @@ static void nvme_mod_exit(void)
     s->ready = 0;
     printk("NVMe: module unloaded\n");
 }
+#endif /* !AXIOME_BUILTIN_DRIVER */
 
+#ifndef AXIOME_BUILTIN_DRIVER
 MODULE_INIT(nvme_mod_init);
 MODULE_EXIT(nvme_mod_exit);
+#endif

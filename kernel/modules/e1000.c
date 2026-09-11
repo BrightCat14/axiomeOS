@@ -298,6 +298,16 @@ static int e1000_tx(struct netdev *dev, struct mbuf *m)
 int e1000_probe(struct pci_device *pdev)
 {
     struct e1000_softc *sc = &g_e1000_sc;
+    if (sc->bound)
+    {
+        /* Single-NIC driver: never re-initialise. The framework's owner
+           tracking normally prevents this path; it only fires on a raw
+           rescan or a direct probe call. */
+        if (sc->pci_bus == pdev->bus && sc->pci_dev == pdev->dev &&
+            sc->pci_func == pdev->func)
+            return 0;
+        return -1;
+    }
     memset(sc, 0, sizeof(*sc));
 
     sc->irq = pdev->irq;
@@ -366,6 +376,8 @@ int e1000_probe(struct pci_device *pdev)
     /* Install IRQ handler (legacy INTx via I/O APIC). */
     ioapic_mask(sc->irq, 0);  /* unmask */
 
+    sc->pci_bus = pdev->bus; sc->pci_dev = pdev->dev; sc->pci_func = pdev->func;
+    sc->bound = 1;
     return 0;
 }
 
@@ -391,10 +403,10 @@ static int e1000_mod_init(void)
     netdev_register_poll(e1000_rx_poll);
 
     /* Register with the driver framework, then probe any matching PCI
-       device that was enumerated before this module loaded. */
+       device that was enumerated before this module loaded. Already-owned
+       devices are skipped by the framework (see pci_device.owner). */
     driver_register(&e1000_drv);
-    for (struct pci_device *p = pci_first(); p; p = p->next)
-        driver_probe_pci(p);
+    driver_probe_all();
 
     printk("E1000: module initialised\n");
     return 0;
@@ -438,6 +450,7 @@ static void e1000_mod_exit(void)
     netdev_unregister_poll(e1000_rx_poll);
     driver_unregister(&e1000_drv);
     e1000_teardown(&g_e1000_sc);
+    g_e1000_sc.bound = 0;
     printk("E1000: module unloaded\n");
 }
 

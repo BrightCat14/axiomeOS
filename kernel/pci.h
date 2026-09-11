@@ -6,6 +6,8 @@
 #define PCI_ADDR_PORT 0xCF8
 #define PCI_DATA_PORT 0xCFC
 
+struct driver;   /* driver.h — forward-declared to avoid a circular include */
+
 struct pci_device {
     uint8_t bus;
     uint8_t dev;
@@ -19,6 +21,11 @@ struct pci_device {
     uint8_t irq;
     uint32_t bar[6];
     struct pci_device *next;
+    /* Driver that claimed this function, or NULL. Set by driver_probe_pci()
+       on the first successful match so later probe passes (module loads,
+       rescans) skip it instead of re-running hardware init. Cleared by
+       pci_init(), which rebuilds the list from scratch. */
+    struct driver *owner;
 };
 
 /* Read a 32-bit configuration dword for (bus,dev,func) at offset `off`. */

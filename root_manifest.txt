@@ -61,8 +61,7 @@ Binaries/kxtunload          0755  0  0  f  bin:kernel/userspace/kxtunload.elf
 Binaries/date               0755  0  0  f  bin:kernel/userspace/date.elf
 
 # Loadable kernel modules (.kxt). Built by kernel/modules/Makefile into the
-# source tree and embedded here so init can load them at boot.
+# source tree and embedded here so init can load them at boot. (sata/nvme
+# are built into the kernel image instead — see kernel/Makefile.)
 System/Extensions/e1000.kxt 0644 0 0 f bin:kernel/modules/e1000.kxt
 System/Extensions/hello.kxt 0644 0 0 f bin:kernel/modules/hello.kxt
-System/Extensions/nvme.kxt 0644 0 0 f bin:kernel/modules/nvme.kxt
-System/Extensions/sata.kxt 0644 0 0 f bin:kernel/modules/sata.kxt
