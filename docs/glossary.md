@@ -11,9 +11,9 @@
 | **CS** | Code Segment. Segment register that contains the current privilege level in x86-64. |
 | **ELF** | Executable and Linkable Format. The native binary format for axiomeOS. |
 | **GDT** | Global Descriptor Table. Defines memory segments (minimal in x86-64: null, kernel code/data, user code/data, TSS). |
-| **GOP** | Graphics Output Protocol. UEFI protocol for framebuffer access (used by GRUB on UEFI). |
+| **GOP** | Graphics Output Protocol. UEFI protocol for framebuffer access (used by the axboot loader). |
 | **GPF** | General Protection Fault. Exception (#13) — access violation, ring violation, etc. |
-| **GRUB** | Grand Unified Bootloader. Bootloader that supports multiboot2 on BIOS and UEFI. |
+| **axboot** | axiomeOS UEFI bootloader (`BOOTX64.EFI`) and its native 64-bit handoff protocol (`struct axboot_info`). Replaces GRUB/multiboot2. |
 | **HPET** | High Precision Event Timer. High-resolution timer replacing PIT. |
 | **HHDM** | Higher-Half Direct Map. Kernel virtual address space that directly maps all physical memory. |
 | **IDT** | Interrupt Descriptor Table. Maps interrupt vectors to handler entry points. |

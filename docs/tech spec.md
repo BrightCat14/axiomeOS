@@ -1,7 +1,7 @@
 axiomeos — technical specification (t0)
 
 version: 0.2 “bootstrap design document”
-target architecture: x86_64 (grub multiboot2)
+target architecture: x86_64 (UEFI + axboot handoff; supersedes the original grub multiboot2 plan)
 binary format: elf64 executable kernel + elf64 userland
 
 ---
@@ -23,30 +23,32 @@ design goals:
 * unix-posix inspired semantics (but not strictly posix)
 * minimal legacy constraints (no bios, no 16-bit nonsense)
 
-boot stack is based on the grub bootloader using the multiboot2 protocol on uefi x86_64 systems.
+boot stack is based on the custom axboot UEFI bootloader (BOOTX64.EFI, gnu-efi)
+using the native 64-bit axboot handoff protocol on uefi x86_64 systems.
 
 ---
 
 # 2. boot process
 
-## 2.1 grub stage
+## 2.1 axboot stage
 
-* uefi firmware loads grub (bootx64.efi)
-* grub reads `grub.cfg` from the esp
-* grub parses `kernel.elf` (multiboot2-compatible) and loads segments into memory
-* grub provides:
+* uefi firmware loads the axboot loader (`EFI/BOOT/BOOTX64.EFI`)
+* the loader reads `\kernel.elf` from the esp via SimpleFileSystem
+* the loader parses `kernel.elf` and loads PT_LOAD segments at `p_paddr`
+* the loader provides (in one `struct axboot_info`, see `include/axboot.h`):
 
-  * memory map (via multiboot2 boot information structure)
-  * framebuffer (gop-based, optionally set by grub gfxpayload)
+  * memory map (converted from the EFI memory map)
+  * framebuffer (GOP-based, preferably 1024x768x32 RGB)
   * acpi rsdp + smbios tables
-* grub transitions to long mode and jumps to kernel entry point
+* the loader exits boot services, installs identity + higher-half page
+  tables and jumps to the 64-bit kernel entry with `RDI` = bootinfo address
 
 ## 2.2 kernel entry
 
-* `_start` in `boot.S` (multiboot2 header + assembly entry)
+* `_start` in `boot.S` (native 64-bit axboot entry, no mode switch)
 * set up stack pointer
 * clear bss
-* parse multiboot2 info structure (memory map, framebuffer, modules)
+* parse the axboot info structure (memory map, framebuffer, ACPI)
 * set up:
 
   * gdt (global descriptor table)

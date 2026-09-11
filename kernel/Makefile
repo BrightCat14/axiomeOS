@@ -10,7 +10,7 @@ CFLAGS  = -ffreestanding -nostdlib -nostartfiles
 CFLAGS += -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2
 CFLAGS += -O2 -g -pipe
 CFLAGS += -Wall -Wextra -Wpedantic
-CFLAGS += -I$(REPO_ROOT) -I$(REPO_ROOT)/kernel
+CFLAGS += -I$(REPO_ROOT) -I$(REPO_ROOT)/kernel -I$(REPO_ROOT)/include
 CFLAGS += -DGIT_COMMIT=\"$(shell git rev-parse --short HEAD)\"
 CFLAGS += -DBUILD_TIME=\"$(shell date +%s)\"
 CFLAGS += -DBUILD_TIME_UNIX=$(shell date +%s)ULL
@@ -59,7 +59,7 @@ all: $(BUILD_DIR)/kernel.elf modules $(USER_ELFS)
 modules:
 	$(MAKE) -C modules
 
-$(BUILD_DIR)/kernel.elf: $(C_OBJS) $(CXX_OBJS) $(ASM_OBJS)
+$(BUILD_DIR)/kernel.elf: $(ASM_OBJS) $(C_OBJS) $(CXX_OBJS)
 	@mkdir -p $(@D)
 	$(LD) $(LDFLAGS) -o $@ $^ -z max-page-size=0x1000
 

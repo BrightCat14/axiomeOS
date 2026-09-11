@@ -2,7 +2,8 @@
 
 > Build system: GNU Make
 > Toolchain: x86_64-elf-gcc (cross-compiler in WSL)
-> Output: `build/kernel.elf` → ISO image → QEMU
+> Bootloader: custom UEFI `BOOTX64.EFI` (gnu-efi, axboot protocol)
+> Output: `build/disk.img` → QEMU (OVMF)
 
 ---
 
@@ -10,14 +11,17 @@
 
 | Target | Description |
 |--------|-------------|
-| `make all` | Build kernel + ISO |
-| `make kernel` | Build `build/kernel.elf` only |
-| `make iso` | Build `build/axiome.iso` (kernel + grub.cfg) |
-| `make run` | Build ISO + launch QEMU |
-| `make debug` | Build ISO + launch QEMU with GDB stub |
+| `make all` | Build kernel + bootloader + ISO |
+| `make kernel` | Build `build/kernel/kernel.elf` only |
+| `make bootloader` | Build `build/bootloader/BOOTX64.EFI` only |
+| `make iso` | Build `build/axiome.iso` (UEFI El Torito ESP image) |
+| `make disk.img` | Build `build/disk.img` (FAT32 ESP + axiomefs ROOT) |
+| `make run` | Boot `disk.img` directly in QEMU (default) |
+| `make run-iso` | Boot the ISO in QEMU (hardware-test path) |
+| `make debug` | Boot `disk.img` in QEMU with GDB stub |
 | `make clean` | Remove build artifacts (keeps `build/` dir) |
 | `make distclean` | Remove entire `build/` directory |
-| `make test` | Build ISO + QEMU with serial output test harness |
+| `make test` | Host-side unit tests (no QEMU needed) |
 
 ---
 
@@ -28,17 +32,27 @@ Source files (*.c, *.S)
     │ x86_64-elf-gcc -ffreestanding -nostdlib -mno-red-zone -mcmodel=kernel -O2 -g
     ▼
 Object files (*.o)
-    │ x86_64-elf-ld -T linker.ld
+    │ x86_64-elf-ld -T linker.ld          (boot.o first → _start @ 0xFFFFFFFF80200000)
     ▼
-kernel.elf
-    │ copy to build/isodir/boot/kernel.elf
-    │ grub-mkrescue -o build/axiome.iso build/isodir
-    ▼
-axiome.iso
-    │ qemu-system-x86_64 -cdrom build/axiome.iso
-    ▼
-QEMU (boots GRUB → loads kernel → kmain)
+kernel.elf ──┐
+             ├─► boot.fat (FAT32 ESP: EFI/BOOT/BOOTX64.EFI + kernel.elf)
+BOOTX64.EFI ─┘         │ overlay at LBA 2048 of disk.img (ESP)
+                       │ copy as esp.img into the ISO (El Torito)
+                       ▼
+QEMU -bios OVMF (boots BOOTX64.EFI → axboot handoff → kmain(axboot_info))
 ```
+
+### UEFI bootloader (`bootloader/`)
+
+`BOOTX64.EFI` is a gnu-efi application compiled with the same
+`x86_64-elf` cross toolchain (`-fshort-wchar -fpic -mno-red-zone`,
+plus `-DHAVE_USE_MS_ABI` so EFI calls use the UEFI calling convention),
+linked against the system gnu-efi (`crt0-efi-x86_64.o`, `libgnuefi.a`,
+`elf_x86_64_efi.lds`); only the final PE32+ conversion uses the host
+`objcopy`. It reads `\kernel.elf` from the ESP via SimpleFileSystem,
+places PT_LOAD segments at `p_paddr`, builds the `axboot_info` handoff
+(`include/axboot.h`), exits boot services and jumps to the native
+64-bit kernel entry with `RDI` = bootinfo physical address.
 
 ---
 
@@ -77,7 +91,7 @@ LDFLAGS = -nostdlib -nostartfiles -T linker.ld
 
 ## Linker Script (`linker.ld`)
 
-The kernel is linked at `KERNEL_VIRT_BASE = 0xFFFFFFFF80000000`, but loaded by GRUB at `KERNEL_PHYS_BASE = 0x200000`.
+The kernel is linked at `KERNEL_VIRT_BASE = 0xFFFFFFFF80000000`, but loaded by the axboot loader at `KERNEL_PHYS_BASE = 0x200000`.
 
 ```ld
 OUTPUT_FORMAT(elf64-x86-64)
@@ -92,64 +106,48 @@ SECTIONS
 
     .text : AT(ADDR(.text) - KERNEL_VIRT_BASE)
     {
-        *(.multiboot)                 /* Multiboot2 header first */
         *(.text*)
         *(.gnu.linkonce.t*)
     }
-
-    .rodata : AT(ADDR(.rodata) - KERNEL_VIRT_BASE)
-    {
-        *(.rodata*)
-    }
-
-    .data : AT(ADDR(.data) - KERNEL_VIRT_BASE)
-    {
-        *(.data*)
-    }
-
-    .bss : AT(ADDR(.bss) - KERNEL_VIRT_BASE)
-    {
-        *(COMMON)
-        *(.bss*)
-    }
-
-    /DISCARD/ : { *(.comment) *(.eh_frame) *(.note*) }
+    ...
 }
 ```
 
-The `AT(...)` directive tells the linker the physical load address while the symbol addresses are virtual. GRUB loads ELF segments using the `p_paddr` field.
+The `AT(...)` directive tells the linker the physical load address while the symbol addresses are virtual. The loader places ELF segments using the `p_paddr` field. (`boot.o` links first so `_start` lands at `0xFFFFFFFF80200000`, the address the loader jumps to.)
 
 ---
 
-## GRUB Configuration (`grub.cfg`)
+## Boot Handoff (`include/axboot.h`)
 
-```cfg
-set timeout=3
-set default=0
-
-menuentry "axiomeOS" {
-    multiboot2 /boot/kernel.elf
-    boot
-}
-
-menuentry "axiomeOS (verbose)" {
-    multiboot2 /boot/kernel.elf debug=1
-    boot
-}
-```
-
-For QEMU testing, GRUB is embedded in the ISO via `grub-mkrescue`.
+There is no GRUB and no multiboot2. The kernel entry is native 64-bit:
+`boot.S` (`kernel/arch/x86_64/boot.S`) receives `RDI` = physical address
+of `struct axboot_info` (magic `AXIOME_BOOT_MAGIC`, version 1), carrying
+the memory map, the GOP framebuffer, the ACPI RSDP and the kernel
+geometry. `kernel/axboot.c` validates it and publishes it to `pmm`,
+`fb_init` and `hal_bootinfo`. There is no bootloader config file.
 
 ---
 
 ## QEMU Commands
 
-### Standard run
+### Standard run (disk image, axboot loader)
+
+```bash
+qemu-system-x86_64 \
+    -bios /usr/share/ovmf/OVMF.fd \
+    -drive file=build/disk.img,format=raw,if=ide,index=0,media=disk \
+    -m 512M \
+    -serial stdio \
+    -vga std
+```
+
+### ISO run (hardware-test path)
 
 ```bash
 qemu-system-x86_64 \
     -bios /usr/share/ovmf/OVMF.fd \
     -cdrom build/axiome.iso \
+    -drive file=build/disk.img,format=raw,if=ide,index=0,media=disk \
     -m 512M \
     -serial stdio \
     -vga std
@@ -160,7 +158,7 @@ qemu-system-x86_64 \
 ```bash
 qemu-system-x86_64 \
     -bios /usr/share/ovmf/OVMF.fd \
-    -cdrom build/axiome.iso \
+    -drive file=build/disk.img,format=raw,if=ide,index=0,media=disk \
     -m 512M \
     -serial stdio \
     -s -S              # -s: -gdb tcp::1234, -S: freeze at startup
@@ -187,17 +185,14 @@ Only on bare-metal Linux (not inside WSL 1, but WSL 2 can sometimes use nested v
 ## ISO Generation
 
 ```bash
-# Create staging directory
-mkdir -p build/isodir/boot/grub
+# The BOOT partition image is itself a FAT32 ESP holding
+#   EFI/BOOT/BOOTX64.EFI and kernel.elf at the volume root.
+# Reuse it verbatim as the El Torito boot image:
+cp build/boot.fat build/isowork/esp.img
 
-# Copy kernel
-cp build/kernel.elf build/isodir/boot/kernel.elf
-
-# Copy GRUB config
-cp grub.cfg build/isodir/boot/grub/grub.cfg
-
-# Generate ISO
-grub-mkrescue -o build/axiome.iso build/isodir
+# Generate ISO (UEFI-only, no BIOS boot catalog)
+xorriso -as mkisofs -R -f -e esp.img -no-emul-boot \
+    -o build/axiome.iso build/isowork
 ```
 
 ---
@@ -210,30 +205,35 @@ grub-mkrescue -o build/axiome.iso build/isodir
 REPO_ROOT := $(realpath .)
 BUILD_DIR := $(REPO_ROOT)/build
 
-.PHONY: all kernel iso run debug clean distclean
+.PHONY: all kernel bootloader iso run run-iso debug clean distclean
 
 all: iso
 
 kernel:
     $(MAKE) -C kernel BUILD_DIR=$(BUILD_DIR)/kernel
 
-iso: kernel
-    mkdir -p $(BUILD_DIR)/isodir/boot/grub
-    cp $(BUILD_DIR)/kernel/kernel.elf $(BUILD_DIR)/isodir/boot/
-    cp grub.cfg $(BUILD_DIR)/isodir/boot/grub/
-    grub-mkrescue -o $(BUILD_DIR)/axiome.iso $(BUILD_DIR)/isodir
+bootloader:
+    $(MAKE) -C bootloader
 
-run: iso
-    qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
-        -cdrom $(BUILD_DIR)/axiome.iso -m 512M -serial stdio
+iso: kernel bootloader $(BOOT_FAT)
+    rm -rf $(BUILD_DIR)/isowork
+    mkdir -p $(BUILD_DIR)/isowork
+    cp $(BOOT_FAT) $(BUILD_DIR)/isowork/esp.img
+    xorriso -as mkisofs -R -f -e esp.img -no-emul-boot \
+        -o $(BUILD_DIR)/axiome.iso $(BUILD_DIR)/isowork
 
-debug: iso
+run: disk.img
     qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
-        -cdrom $(BUILD_DIR)/axiome.iso -m 512M -serial stdio -s -S
+        -drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide -m 512M -serial stdio
+
+debug: disk.img
+    qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
+        -drive file=$(BUILD_DIR)/disk.img,format=raw,if=ide -m 512M -serial stdio -s -S
 
 clean:
-    rm -rf $(BUILD_DIR)/isodir
+    rm -rf $(BUILD_DIR)/isowork $(BUILD_DIR)/boot.fat ...
     $(MAKE) -C kernel clean
+    $(MAKE) -C bootloader clean
 
 distclean:
     rm -rf $(BUILD_DIR)

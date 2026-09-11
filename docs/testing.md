@@ -50,13 +50,13 @@ Initial framebuffer text mode (VGA text, or GOP-based bitmap font) provides imme
 | Cross-compiler works | `x86_64-elf-gcc --version` | Prints version |
 | Compile test | Compile `int main() { return 0; }` with `-ffreestanding` | No errors |
 | QEMU works | `qemu-system-x86_64 --version` | Prints version |
-| GRUB mkrescue | `grub-mkrescue --version` | Prints version |
+| gnu-efi present | `ls /usr/include/efi/efi.h` | Header exists |
 
-### Phase 1 — GRUB Boot + Entry Point
+### Phase 1 — axboot Boot + Entry Point
 
 | Test | Method | Expected |
 |------|--------|----------|
-| Kernel boots | `make run` | QEMU shows GRUB menu → boots kernel |
+| Kernel boots | `make run` | OVMF loads BOOTX64.EFI → boots kernel (no menu) |
 | Entry reached | Serial output from `_start` | "axiomeOS: entering kmain" |
 | Framebuffer lit | Visual check | Colored pattern or text on screen |
 
@@ -137,7 +137,7 @@ printf("PASS: kmalloc stress test\n");
 
 | Test | Method | Expected |
 |------|--------|----------|
-| Shell boots | GRUB boots → kernel → init → shell | Shell prompt visible |
+| Shell boots | axboot loader → kernel → init → shell | Shell prompt visible |
 | `echo hello` | Type at shell | "hello" printed |
 | `ls` | Run `ls` on ramdisk | File listing |
 

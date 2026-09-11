@@ -1,20 +1,19 @@
 .intel_syntax noprefix
 
-.set KERNEL_VIRT_BASE, 0xFFFFFFFF80000000
-.set MB2_MAGIC, 0xE85250D6
-.set MB2_ARCH, 0
+/* axiomeOS 64-bit axboot entry.
+ *
+ * Entered directly from the UEFI bootloader (BOOTX64.EFI) in long mode
+ * with paging ON:
+ *   RDI = physical address of struct axboot_info
+ *   loader page tables live: identity 0-8G + kernel higher-half alias
+ *   interrupts disabled, loader GDT live, loader stack live
+ *
+ * This stub parks the bootinfo pointer, switches to the bootstrap stack,
+ * zeroes .bss, installs the kernel's own page tables (same geometry the
+ * mmu.c code expects), reloads GDT/IDT and calls kmain(axboot_info).
+ */
 
-.section .multiboot, "a"
-.align 8
-mb2_header_start:
-    .long MB2_MAGIC
-    .long MB2_ARCH
-    .long mb2_header_end - mb2_header_start
-    .long -(MB2_MAGIC + MB2_ARCH + (mb2_header_end - mb2_header_start))
-    .word 0
-    .word 0
-    .long 8
-mb2_header_end:
+.set KERNEL_VIRT_BASE, 0xFFFFFFFF80000000
 
 .section .bss, "aw", @nobits
 .align 4096
@@ -42,92 +41,99 @@ bootstrap_stack_top:
 
 .section .data
 .align 8
-saved_magic:
-    .quad 0
-saved_mb2_info:
+.global saved_bootinfo
+saved_bootinfo:
     .quad 0
 
 .section .text
-.code32
+.code64
 .global _start
 _start:
-    cld
     cli
+    cld
 
-    lea ecx, [saved_magic - KERNEL_VIRT_BASE]
-    mov [ecx], eax
-    lea ecx, [saved_mb2_info - KERNEL_VIRT_BASE]
-    mov [ecx], ebx
+    /* Park the incoming bootinfo physical address first. saved_bootinfo
+       lives in .data, so the .bss wipe below does not clobber it. */
+    lea rax, [rip + saved_bootinfo]
+    mov [rax], rdi
 
-    lea esp, [bootstrap_stack_top - KERNEL_VIRT_BASE]
+    /* Bootstrap stack (virtual; covered by the loader's high alias until
+       our own tables are live, and by our tables afterwards). */
+    lea rsp, [rip + bootstrap_stack_top]
 
-    lea edi, [_bss_start - KERNEL_VIRT_BASE]
-    lea ecx, [_bss_end - KERNEL_VIRT_BASE]
-    sub ecx, edi
+    /* Zero .bss (tables + stack + idt) using virtual addresses. */
+    lea rdi, [rip + _bss_start]
+    lea rcx, [rip + _bss_end]
+    sub rcx, rdi
     xor eax, eax
     rep stosb
 
-    lea edi, [pml4_table - KERNEL_VIRT_BASE]
-    lea esi, [pdp_table - KERNEL_VIRT_BASE]
-    lea edx, [pd_table - KERNEL_VIRT_BASE]
+    lea rdi, [rip + pml4_table]
+    lea rsi, [rip + pdp_table]
+    lea rdx, [rip + pd_table]
 
-    mov eax, esi
-    or eax, 0x03
-    mov [edi], eax
-    mov [edi + 511*8], eax
+    /* Page-table entries and CR3 need PHYSICAL addresses, but RIP-relative
+       LEA yields virtual ones (high alias). KVIRT = phys + 64-bit base. */
+    movabs rax, KERNEL_VIRT_BASE
+    mov rbx, rsi
+    sub rbx, rax                 # rbx = phys pdp_table
+    mov rcx, rdx
+    sub rcx, rax                 # rcx = phys pd_table
+    mov r8, rdi
+    sub r8, rax                  # r8 = phys pml4_table
 
-    mov eax, edx
-    or eax, 0x03
-    mov [esi], eax
-    mov [esi + 510*8], eax
+    /* pml4[0] = pdp (identity), pml4[511] = pdp (higher-half alias),
+       pml4[1] = pdp (mmu.c window root: pdp[2]=pd_table2, pdp[3]=pd_table3). */
+    mov rax, rbx
+    or rax, 0x03
+    mov [rdi], rax
+    mov [rdi + 511*8], rax
+    mov [rdi + 1*8], rax
 
-    mov eax, esi
-    or eax, 0x03
-    mov [edi + 1*8], eax
+    /* pdp[0] = pd (identity), pdp[510] = pd (higher-half),
+       pdp[2] = pd_table2 (0x80000000 window),
+       pdp[3] = pd_table3 (0xC0000000 window). */
+    mov rax, rcx
+    or rax, 0x03
+    mov [rsi], rax
+    mov [rsi + 510*8], rax
 
-    lea eax, [pd_table2 - KERNEL_VIRT_BASE]
-    or eax, 0x03
-    mov [esi + 2*8], eax
+    lea rax, [rip + pd_table2]
+    movabs r9, KERNEL_VIRT_BASE
+    sub rax, r9
+    or rax, 0x03
+    mov [rsi + 2*8], rax
 
-    lea eax, [pd_table3 - KERNEL_VIRT_BASE]
-    or eax, 0x03
-    mov [esi + 3*8], eax
+    lea rax, [rip + pd_table3]
+    sub rax, r9
+    or rax, 0x03
+    mov [rsi + 3*8], rax
 
-    mov dword ptr [edx], 0x000083
-    mov dword ptr [edx + 4], 0x000000
-    mov dword ptr [edx + 8], 0x200083
-    mov dword ptr [edx + 12], 0x000000
-    mov dword ptr [edx + 16], 0x400083
-    mov dword ptr [edx + 20], 0x000000
-    mov dword ptr [edx + 24], 0x600083
-    mov dword ptr [edx + 28], 0x000000
+    /* Identity-map 0-64MiB with 2MiB huge pages. This covers the kernel
+       image, the axboot_info at 0x180000 and the early PMM bitmap area;
+       mmu_arch_init() fills the rest and skips present entries. */
+    xor ecx, ecx
+1:
+    mov eax, ecx
+    shl rax, 21
+    or rax, 0x83
+    mov [rdx + rcx*8], rax
+    inc rcx
+    cmp rcx, 32
+    jb 1b
 
-    mov eax, edi
-    mov cr3, eax
+    /* Install our tables (CR3 takes the physical address). */
+    mov cr3, r8
 
-    mov eax, cr4
-    bts eax, 5
-    mov cr4, eax
-
+    /* Enable SYSCALL/SYSRET (EFER.SCE, bit 0), mirroring the old 32-bit
+       entry which set it during the mode switch. syscall_init() programs
+       STAR/LSTAR/SFMASK but relies on SCE already being on. */
     mov ecx, 0xC0000080
     rdmsr
-    bts eax, 8
     bts eax, 0
     wrmsr
 
-    lea eax, [gdt_ptr_32 - KERNEL_VIRT_BASE]
-    lgdt [eax]
-
-    mov eax, cr0
-    bts eax, 31
-    mov cr0, eax
-
-    .byte 0xEA
-    .long 1f - KERNEL_VIRT_BASE
-    .word 0x18
-
-.code64
-1:
+    /* Clear CET bits (like the old entry tail did). */
     mov rax, cr4
     btr rax, 20
     btr rax, 21
@@ -135,9 +141,15 @@ _start:
     btr rax, 23
     mov cr4, rax
 
+    /* Our GDT, then reload CS to our 64-bit code segment (0x18). */
     lea rax, [rip + gdt_ptr_64]
     lgdt [rax]
 
+    push 0x18
+    lea rax, [rip + 10f]
+    push rax
+    lretq
+10:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
@@ -145,6 +157,7 @@ _start:
     mov gs, ax
     mov ss, ax
 
+    /* Null-handler IDT (real handlers installed later by isr_init). */
     lea rdi, [rip + idt_table]
     mov ecx, 256
 2:
@@ -165,11 +178,8 @@ _start:
     lea rax, [rip + idt_ptr]
     lidt [rax]
 
-    lea rax, [rip + saved_magic]
-    mov rdi, [rax]
-    lea rax, [rip + saved_mb2_info]
-    mov rsi, [rax]
-
+    /* kmain(axboot_info_phys). */
+    mov rdi, [rip + saved_bootinfo]
     call kmain
 
     cli
@@ -195,10 +205,6 @@ gdt_end:
 gdt_tss_desc:
     .quad 0x0000000000000000
     .quad 0x0000000000000000
-
-gdt_ptr_32:
-    .word gdt_tss_desc - gdt_start + 15
-    .long gdt_start - KERNEL_VIRT_BASE
 
 gdt_ptr_64:
     .word gdt_tss_desc - gdt_start + 15

@@ -85,7 +85,7 @@ int mmu_pat_has_wc(void)
 /* Step 1 of WC enablement: make sure IA32_PAT (0x277) has a 01h (WC) entry.
    UEFI firmware normally already programs PA4=WC; if no slot holds WC we
    program PA4 ourselves, preserving the other seven slots. Idempotent so it
-   can run both before the early GOP mapping (which happens in mb2_parse,
+   can run both before the early GOP mapping (which happens in axboot_parse,
    ahead of vmm_init) and again from mmu_arch_init(). */
 void mmu_pat_init(void)
 {

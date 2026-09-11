@@ -1,6 +1,6 @@
 #include "serial.h"
 #include "printk.h"
-#include "multiboot2.h"
+#include "axboot.h"
 #include "framebuffer.h"
 #include "pmm.h"
 #include "apic.h"
@@ -36,7 +36,7 @@
 #include "hal/hal_bootinfo.h"
 #include "xhci.h"
 
-void mb2_parse(unsigned long mb2_info_addr);
+void axboot_parse(struct axboot_info *info);
 void isr_init(void);
 
 /* Load the init program from the root partition and start it as PID 1.
@@ -63,14 +63,14 @@ void kernel_respawn_init(void)
     exec_init_from_disk();
 }
 
-void kmain(unsigned long magic, unsigned long mb2_info_addr)
+void kmain(struct axboot_info *info)
 {
     hal_init();
     serial_init(COM1);
 
     printk("axiomeOS booting...\n");
 
-    mb2_parse(mb2_info_addr);
+    axboot_parse(info);
 
     pmm_init();
     vmm_init();

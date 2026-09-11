@@ -10,7 +10,6 @@ SECTIONS
 
     .text : AT(ADDR(.text) - KERNEL_VIRT_BASE)
     {
-        *(.multiboot)
         *(.text*)
         *(.gnu.linkonce.t*)
     } :text
