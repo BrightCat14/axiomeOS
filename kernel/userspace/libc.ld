@@ -1,5 +1,4 @@
 OUTPUT_FORMAT("elf64-x86-64")
-ENTRY(_start)
 
 PHDRS
 {
@@ -10,7 +9,7 @@ PHDRS
 
 SECTIONS
 {
-    . = 0x10000000000;
+    . = 0x18000000000;
 
     .text : {
         *(.text*)

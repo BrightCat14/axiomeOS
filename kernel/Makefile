@@ -43,17 +43,29 @@ USER_PROGS := init hello cat echo sh ls mkdir cp mv rm touch whoami uname \
 	login su chmod chown vfs_test ipc_test proc_test driver_test net_test \
 	kill kxtload kxtunload 	syslogd oobe date burn forkt
 USER_ELFS := $(addprefix userspace/,$(addsuffix .elf,$(USER_PROGS)))
-USER_OBJS := $(patsubst %,$(BUILD_DIR)/%_user.o,$(USER_PROGS))
 
-USER_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
-	-fno-stack-protector -static -fno-pic -fno-pie -mcmodel=large -O2 \
+# Every user binary is a PIE that depends on libc.sl (shared library).
+# crt0.o stays statically linked so each executable has its own _start.
+# libc.sl and userspace/link.ld fix the load bases (0x8000000000 and
+# 0x10000000000) that the in-kernel dynamic linker relies on.
+USER_BASE_CFLAGS := -ffreestanding -nostdlib -nostartfiles -fno-builtin \
+	-fno-stack-protector -fPIC -mcmodel=small -O2 -g -pipe \
 	-mno-red-zone -Wall -Wextra -I userspace/libc
+USER_CFLAGS := $(USER_BASE_CFLAGS) -fpie
+
+# libc.sl is a real shared object: every global symbol is preemptible, so it
+# must be built as plain PIC (never -fpie, which relaxes same-TU references
+# and also happens to clobber -fPIC in newer gcc).
+LIBC_CFLAGS := $(USER_BASE_CFLAGS)
+
+CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
 
 LIBC_SRCS := userspace/libc/errno.c userspace/libc/string.c \
 	userspace/libc/stdlib.c userspace/libc/stdio.c \
-	userspace/libc/syscall.c userspace/libc/signal.c userspace/libc/crt0.c \
+	userspace/libc/syscall.c userspace/libc/signal.c \
 	userspace/libc/time.c
 LIBC_OBJS := $(patsubst userspace/libc/%.c, $(BUILD_DIR)/libc_%.o, $(LIBC_SRCS))
+LIBC_SL := userspace/libc.sl
 
 .PHONY: all clean modules
 
@@ -84,13 +96,28 @@ $(BUILD_DIR)/%_user.o: userspace/%.c
 	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/libc_%.o: userspace/libc/%.c
+$(BUILD_DIR)/user_crt0.o: userspace/libc/crt0.c
 	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
-userspace/%.elf: $(BUILD_DIR)/%_user.o $(LIBC_OBJS)
+$(BUILD_DIR)/libc_%.o: userspace/libc/%.c
 	@mkdir -p $(@D)
-	$(LD) -T userspace/link.ld -o $@ $^
+	$(CC) $(LIBC_CFLAGS) -c $< -o $@
+
+# Shared C library: every user binary links against this instead of dragging
+# its own static copy. Built with a fixed base so the kernel can map it at
+# its link-time address (load bias 0) and resolve RELA directly.
+$(LIBC_SL): $(LIBC_OBJS) userspace/libc.ld
+	@mkdir -p $(@D)
+	$(LD) -shared -T userspace/libc.ld --hash-style=sysv \
+		-soname libc.sl -z max-page-size=0x1000 -o $@ $(LIBC_OBJS)
+
+# PIE user executable, dynamically linked against libc.sl (DT_NEEDED picked
+# up by link.ld; resolved at runtime by kernel/elf.c + kernel/dynlink.c).
+userspace/%.elf: $(BUILD_DIR)/%_user.o $(CRT0_OBJ) $(LIBC_SL)
+	@mkdir -p $(@D)
+	$(LD) -pie -T userspace/link.ld --hash-style=sysv \
+		-z max-page-size=0x1000 -e _start -o $@ $^
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -1,10 +1,12 @@
 #include "elf.h"
+#include "dynlink.h"
 #include "printk.h"
 #include "vmm.h"
 #include "pmm.h"
 #include "sched.h"
 #include "string.h"
 #include "slab.h"
+#include "vfs.h"
 
 /* Bounds on how many user pages one image may claim, so the per-page
    protection bookkeeping stays small even for hostile headers. */
@@ -14,9 +16,47 @@
 #define SEG_COVER_W 1
 #define SEG_COVER_X 2
 
-static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
-                            int argc, char **argv, int envc, char **envp,
-                            uint64_t *stack_top);
+#define ELF_MAX_IMAGES 8
+#define ELF_MAX_DEP_NAME 64
+
+/* Where on the root partition a DT_NEEDED library (e.g. "libc.sl") may
+   live. Tried in order; the image build plants libc.sl under /Libraries. */
+static const char *const elf_lib_dirs[] = { "/Libraries/", "/Binaries/", "/bin/", "/", 0 };
+
+/* Runtime image bookkeeping: the mapped segments plus the dynamic-link
+   description of the image's ELF bytes (kept in kernel memory). */
+struct elf_image {
+    uint64_t span_lo;
+    size_t span_pages;
+    uint8_t *cover;                 /* W^(X) coverage bits per page */
+    uint64_t highest;               /* end of mapped segments */
+    int owns_buf;                   /* loader owns dyn.buf, free after reloc */
+    char name[32];
+    struct elf_object dyn;          /* points at the image file bytes */
+};
+
+static void elf_free_image(struct elf_image *img)
+{
+    if (img->cover)
+    {
+        kfree(img->cover);
+        img->cover = 0;
+    }
+}
+
+/* Release the loader-owned file-byte buffers after relocation, when the
+   dynamic tables they back are no longer needed. */
+static void elf_free_owned_buffers(struct elf_image *imgs, size_t nimg)
+{
+    for (size_t o = 0; o < nimg; o++)
+    {
+        if (imgs[o].owns_buf)
+        {
+            kfree((void *)(uintptr_t)imgs[o].dyn.buf);
+            imgs[o].owns_buf = 0;
+        }
+    }
+}
 
 static int elf_valid(const struct elf64_ehdr *h)
 {
@@ -33,49 +73,52 @@ static int elf_valid(const struct elf64_ehdr *h)
     return 1;
 }
 
-int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
-              uint64_t *entry, uint64_t *stack_top, int argc, char **argv,
-              int envc, char **envp)
+/* Map every PT_LOAD segment of `data` into `mmu` (which must already be
+   the active address space) and record the per-page protection coverage.
+   Pages are left writable so the relocation pass can fill GOT/PLT slots;
+   elf_load make_images_readonly() applies the final W^X protections. */
+static int elf_map_image(struct mmu_root *mmu, const uint8_t *data, size_t size,
+                         struct elf_image *img, int require_entry)
 {
+    memset(img, 0, sizeof(*img));
+    img->dyn.buf = data;
+    img->dyn.size = size;
+
     if (size < sizeof(struct elf64_ehdr))
         return -1;
 
     const struct elf64_ehdr *h = (const struct elf64_ehdr *)data;
     if (!elf_valid(h))
     {
-        printk("ELF: invalid header\n");
+        printk("ELF(%s): invalid header\n", img->name);
         return -1;
     }
     if (h->e_phentsize != sizeof(struct elf64_phdr) ||
         h->e_phoff > size ||
         (uint64_t)h->e_phnum > (size - h->e_phoff) / sizeof(struct elf64_phdr))
     {
-        printk("ELF: invalid program headers\n");
+        printk("ELF(%s): invalid program headers\n", img->name);
         return -1;
     }
 
     const struct elf64_phdr *ph = (const struct elf64_phdr *)(data + h->e_phoff);
-    int entry_ok = 0;
-    for (uint16_t i = 0; i < h->e_phnum; i++)
+
+    if (require_entry)
     {
-        if (ph[i].p_type != PT_LOAD)
-            continue;
-        if (ph[i].p_filesz > ph[i].p_memsz || ph[i].p_offset > size ||
-            ph[i].p_filesz > size - ph[i].p_offset ||
-            ph[i].p_vaddr + ph[i].p_memsz < ph[i].p_vaddr ||
-            ph[i].p_vaddr + ph[i].p_memsz + 0xFFFULL < ph[i].p_vaddr + ph[i].p_memsz)
+        int entry_ok = 0;
+        for (uint16_t i = 0; i < h->e_phnum; i++)
         {
-            printk("ELF: invalid segment\n");
+            if (ph[i].p_type != PT_LOAD)
+                continue;
+            if ((ph[i].p_flags & PF_X) && h->e_entry >= ph[i].p_vaddr &&
+                h->e_entry < ph[i].p_vaddr + ph[i].p_memsz)
+                entry_ok = 1;
+        }
+        if (!entry_ok)
+        {
+            printk("ELF(%s): entry outside executable segment\n", img->name);
             return -1;
         }
-        if ((ph[i].p_flags & PF_X) && h->e_entry >= ph[i].p_vaddr &&
-            h->e_entry < ph[i].p_vaddr + ph[i].p_memsz)
-            entry_ok = 1;
-    }
-    if (!entry_ok)
-    {
-        printk("ELF: entry outside executable segment\n");
-        return -1;
     }
 
     /* Compute the union of all PT_LOAD pages so per-page protections can be
@@ -87,6 +130,13 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
     {
         if (ph[i].p_type != PT_LOAD)
             continue;
+        if (ph[i].p_filesz > ph[i].p_memsz || ph[i].p_offset > size ||
+            ph[i].p_filesz > size - ph[i].p_offset ||
+            ph[i].p_vaddr + ph[i].p_memsz < ph[i].p_vaddr)
+        {
+            printk("ELF(%s): invalid segment\n", img->name);
+            return -1;
+        }
         uint64_t vlo = ph[i].p_vaddr & ~0xFFFULL;
         uint64_t vhi = (ph[i].p_vaddr + ph[i].p_memsz + 0xFFFULL) & ~0xFFFULL;
         if (vlo < span_lo) span_lo = vlo;
@@ -95,14 +145,14 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
     uint64_t span_pages = (span_hi - span_lo) / PAGE_SIZE;
     if (span_pages > ELF_MAX_SEG_PAGES)
     {
-        printk("ELF: segment span too large (%lu pages)\n",
-               (unsigned long)span_pages);
+        printk("ELF(%s): segment span too large (%lu pages)\n",
+               img->name, (unsigned long)span_pages);
         return -1;
     }
-    uint8_t *cover = kmalloc(span_pages ? span_pages : 1);
+    uint8_t *cover = kmalloc(span_pages ? (size_t)span_pages : 1);
     if (!cover)
         return -1;
-    __builtin_memset(cover, 0, span_pages);
+    memset(cover, 0, span_pages ? (size_t)span_pages : 1);
 
     for (uint16_t i = 0; i < h->e_phnum; i++)
     {
@@ -120,14 +170,7 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
         }
     }
 
-    /* The new address space owns these user mappings, but it is not yet the
-       active page table. Switch to it so writes to the user virtual addresses
-       land in the correct frames. */
-    struct mmu_root *saved = vmm_current_root();
-    vmm_switch(mmu);
-
     uint64_t highest = 0;
-
     for (uint16_t i = 0; i < h->e_phnum; i++)
     {
         if (ph[i].p_type != PT_LOAD)
@@ -151,16 +194,16 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
             uint64_t phys = (uint64_t)pmm_alloc_frame();
             if (!phys)
             {
-                printk("ELF: OOM mapping 0x%lx\n", va);
-                goto fail;
+                printk("ELF(%s): OOM mapping 0x%lx\n", img->name, va);
+                return -1;
             }
-            /* Map writable temporarily so image bytes can be copied in; the
-               final W^X protections are applied after all segments load. */
+            /* Map writable temporarily so image bytes and relocation data
+               can be written; final W^X protections come afterwards. */
             if (vmm_map_page_in(mmu, va, phys, MMU_USER | MMU_WRITE) < 0)
             {
                 pmm_free_frame((void *)phys);
-                printk("ELF: map failed 0x%lx\n", va);
-                goto fail;
+                printk("ELF(%s): map failed 0x%lx\n", img->name, va);
+                return -1;
             }
 
             uint64_t copy_off = va - vaddr;
@@ -172,44 +215,201 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
                 uint64_t copy_len = PAGE_SIZE;
                 if (file_off + copy_len > file_end)
                     copy_len = file_end - file_off;
-                __builtin_memcpy((void *)va, data + file_off, copy_len);
+                memcpy((void *)va, data + file_off, (size_t)copy_len);
                 if (copy_len < PAGE_SIZE)
-                    __builtin_memset((void *)(va + copy_len), 0,
-                                     PAGE_SIZE - copy_len);
+                    memset((void *)(va + copy_len), 0,
+                           PAGE_SIZE - copy_len);
             }
             else
             {
-                __builtin_memset((void *)va, 0, PAGE_SIZE);
+                memset((void *)va, 0, PAGE_SIZE);
             }
         }
 
-        uint64_t seg_end = vaddr + memsz;
-        if (seg_end > highest)
-            highest = seg_end;
+        if (vaddr + memsz > highest)
+            highest = vaddr + memsz;
     }
 
-    /* Apply final per-page protections (W^X). Writable pages are never
-       executable; executable pages are never writable. */
-    for (uint64_t idx = 0; idx < span_pages; idx++)
+    img->span_lo = span_lo;
+    img->span_pages = (size_t)span_pages;
+    img->cover = cover;
+    img->highest = highest;
+
+    if (elf_parse_dynamic(&img->dyn) < 0)
     {
-        uint64_t va = span_lo + idx * PAGE_SIZE;
+        printk("ELF(%s): bad dynamic data\n", img->name);
+        return -1;
+    }
+    return 0;
+}
+
+/* Load the DT_NEEDED libraries of the main image (imgs[0]) into the same
+   address space, appending them after it. */
+static int elf_load_dependencies(struct mmu_root *mmu, struct elf_image *imgs,
+                                 size_t *nimg)
+{
+    struct elf_image *main = &imgs[0];
+    if (!main->dyn.info.has_dynamic)
+        return 0;
+
+    const struct elf_dyninfo *di = &main->dyn.info;
+    if (di->dynstr_off == 0 && di->nneeded > 0)
+        return -1;
+
+    char name[ELF_MAX_DEP_NAME];
+    for (int d = 0; d < di->nneeded; d++)
+    {
+        uint32_t off = di->needed_off[d];
+        if (off >= di->dynstr_size)
+            return -1;
+        const uint8_t *s = main->dyn.buf + di->dynstr_off + off;
+        size_t n = 0;
+        while (n < sizeof(name) - 1 && s[n])
+        {
+            name[n] = (char)s[n];
+            n++;
+        }
+        name[n] = 0;
+        if (n == 0 || n >= sizeof(name) - 1)
+            return -1;
+
+        int loaded = 0;
+        for (int dir = 0; elf_lib_dirs[dir]; dir++)
+        {
+            char path[128];
+            size_t pl = 0;
+            while (elf_lib_dirs[dir][pl])
+            {
+                path[pl] = elf_lib_dirs[dir][pl];
+                pl++;
+            }
+            if (pl + n >= sizeof(path))
+                return -1;
+            memcpy(path + pl, name, n + 1);
+
+            uint8_t *buf = 0;
+            size_t sz = 0;
+            if (vfs_read_file(path, &buf, &sz) != 0)
+                continue;
+            if (*nimg >= ELF_MAX_IMAGES)
+            {
+                printk("DYN: too many images for '%s'\n", name);
+                kfree(buf);
+                return -1;
+            }
+            struct elf_image *dep = &imgs[(*nimg)++];
+            memset(dep, 0, sizeof(*dep));
+            memcpy(dep->name, name, strlen(name) < sizeof(dep->name) ?
+                        strlen(name) : sizeof(dep->name) - 1);
+            if (elf_map_image(mmu, buf, sz, dep, 0) < 0)
+            {
+                printk("DYN: failed to map library '%s'\n", path);
+                kfree(buf);
+                (*nimg)--;
+                return -1;
+            }
+            dep->owns_buf = 1;  /* keep bytes until relocation is applied */
+            loaded = 1;
+            break;
+        }
+        if (!loaded)
+        {
+            printk("DYN: library '%s' not found\n", name);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* The new address space owns these user mappings, but is not yet the active
+   page table. Callers switch to it before writing to the user virtual
+   addresses; this closure writes one relocated pointer slot. */
+static void elf_place_reloc(uint64_t target_va, uint64_t value, void *ctx)
+{
+    (void)ctx;
+    *(volatile uint64_t *)(uintptr_t)target_va = value;
+}
+
+/* Apply the final W^X per-page protections for one image. */
+static int elf_image_readonly(struct elf_image *img, struct mmu_root *mmu)
+{
+    for (size_t idx = 0; idx < img->span_pages; idx++)
+    {
+        uint64_t va = img->span_lo + idx * PAGE_SIZE;
         if (vmm_virt_to_phys_in(mmu, va) == 0)
             continue;
         uint32_t flags = MMU_USER;
-        if (cover[idx] & SEG_COVER_W)
+        if (img->cover[idx] & SEG_COVER_W)
             flags |= MMU_WRITE;
-        if ((cover[idx] & SEG_COVER_W) || !(cover[idx] & SEG_COVER_X))
+        if ((img->cover[idx] & SEG_COVER_W) || !(img->cover[idx] & SEG_COVER_X))
             flags |= MMU_NX;
         if (vmm_protect_page(mmu, va, flags) < 0)
         {
-            printk("ELF: protect failed 0x%lx\n", va);
+            printk("ELF(%s): protect failed 0x%lx\n", img->name, va);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int setup_user_stack(uint64_t stack_base, uint64_t stack_pages,
+                            int argc, char **argv, int envc, char **envp,
+                            uint64_t *stack_top);
+
+int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
+              uint64_t *entry, uint64_t *stack_top, int argc, char **argv,
+              int envc, char **envp)
+{
+    struct elf_image imgs[ELF_MAX_IMAGES];
+    memset(imgs, 0, sizeof(imgs));
+    size_t nimg = 0;
+
+    /* The new address space must be active to copy image bytes and to apply
+       relocations into the freshly mapped pages. */
+    struct mmu_root *saved = vmm_current_root();
+    vmm_switch(mmu);
+
+    memcpy(imgs[nimg].name, "main", 5);
+    if (elf_map_image(mmu, data, size, &imgs[nimg], 1) < 0)
+        goto fail;
+    nimg++;
+
+    if (elf_load_dependencies(mmu, imgs, &nimg) < 0)
+        goto fail;
+
+    /* Relocate everything (eager binding). The scope is the executable
+       followed by its shared libraries, so symbols resolve the same way the
+       host dynamic linker would. */
+    struct elf_object scope[ELF_MAX_IMAGES];
+    for (size_t o = 0; o < nimg; o++)
+        scope[o] = imgs[o].dyn;
+    for (size_t o = 0; o < nimg; o++)
+    {
+        int applied = 0;
+        if (elf_apply_relocations(&imgs[o].dyn, scope, nimg,
+                                  elf_place_reloc, 0, &applied) < 0)
+        {
+            printk("DYN: relocation of '%s' failed\n", imgs[o].name);
             goto fail;
         }
     }
-    kfree(cover);
-    cover = 0;
 
+    elf_free_owned_buffers(imgs, nimg);
+
+    for (size_t o = 0; o < nimg; o++)
+    {
+        if (elf_image_readonly(&imgs[o], mmu) < 0)
+            goto fail;
+        elf_free_image(&imgs[o]);
+    }
+
+    const struct elf64_ehdr *h = (const struct elf64_ehdr *)data;
     *entry = h->e_entry;
+
+    uint64_t highest = 0;
+    for (size_t o = 0; o < nimg; o++)
+        if (imgs[o].highest > highest)
+            highest = imgs[o].highest;
 
     uint64_t stack_top_ptr = 0;
     uint64_t stack_base = (highest + 0x10000ULL + 0xFFFULL) & ~0xFFFULL;
@@ -246,8 +446,9 @@ int elf_load(struct mmu_root *mmu, const uint8_t *data, size_t size,
 
 fail:
     vmm_switch(saved);
-    if (cover)
-        kfree(cover);
+    elf_free_owned_buffers(imgs, nimg);
+    for (size_t o = 0; o < nimg; o++)
+        elf_free_image(&imgs[o]);
     return -1;
 }
 

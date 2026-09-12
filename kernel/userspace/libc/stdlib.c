@@ -10,6 +10,14 @@ static int heap_init = 0;
 
 char **environ;
 
+/* Set by crt0 from the initial stack's envp vector before main() runs.
+   Lives in libc (not the executable) so the executable has no copy
+   relocation against this data symbol across the .sl boundary. */
+void __axiome_set_environ(char **envp)
+{
+    environ = envp;
+}
+
 /* Simple free-list allocator with block headers */
 typedef struct block {
     size_t size;        /* Size of user data (excluding header) */

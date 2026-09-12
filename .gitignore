@@ -9,6 +9,7 @@ ovmf_vars.fd
 
 # ELF binaries (userspace, built from sources)
 kernel/userspace/*.elf
+kernel/userspace/*.sl
 kernel/modules/*.kxt
 
 # Editor/OS files

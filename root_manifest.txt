@@ -27,6 +27,7 @@ Temporary/      1777  0  0  d
 Devices/        0755 0  0  d
 boot/           0755 0  0  d
 Binaries/       0755 0  0  d
+Libraries/      0755 0  0  d
 
 # User binaries (embedded host ELFs, written verbatim under /Binaries).
 # Friendly /bin remains a read-only alias that resolves to /Binaries.
@@ -59,6 +60,11 @@ Binaries/kill               0755  0  0  f  bin:kernel/userspace/kill.elf
 Binaries/kxtload            0755  0  0  f  bin:kernel/userspace/kxtload.elf
 Binaries/kxtunload          0755  0  0  f  bin:kernel/userspace/kxtunload.elf
 Binaries/date               0755  0  0  f  bin:kernel/userspace/date.elf
+
+# Shared C library, loaded by the kernel's dynamic linker when a binary has a
+# DT_NEEDED entry (see kernel/dynlink.c search paths). Libraries live under
+# /Libraries (the /Binaries layout used to hold it).
+Libraries/libc.sl    0755  0  0  f  bin:kernel/userspace/libc.sl
 
 # Loadable kernel modules (.kxt). Built by kernel/modules/Makefile into the
 # source tree and embedded here so init can load them at boot. (sata/nvme

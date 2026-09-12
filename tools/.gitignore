@@ -1,0 +1,10 @@
+build/
+
+*.o
+*.elf
+*.img
+*.iso
+*.fat
+
+__pycache__/
+*.pyc

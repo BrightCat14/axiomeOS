@@ -146,7 +146,8 @@ KERNEL_TESTS := \
 	$(BUILD_DIR)/tests/hid_boot_test \
 	$(BUILD_DIR)/tests/kernel_string_test \
 	$(BUILD_DIR)/tests/kernel_net_util_test \
-	$(BUILD_DIR)/tests/kernel_layout_test
+	$(BUILD_DIR)/tests/kernel_layout_test \
+	$(BUILD_DIR)/tests/dynlink_regress_test
 
 LIBC_TESTS := \
 	$(BUILD_DIR)/tests/libc_string_test \
@@ -177,6 +178,27 @@ $(BUILD_DIR)/tests/kernel_net_util_test: tests/kernel_net_util_test.c kernel/net
 $(BUILD_DIR)/tests/kernel_layout_test: tests/kernel_layout_test.c kernel/elf.h kernel/axiomefs.h
 	@mkdir -p $(@D)
 	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ $<
+
+# Dynamic-linker regression: build a real PIE executable + shared library with
+# the host toolchain, then run kernel/dynlink.c against them (raw buffers,
+# load bias 0, no execution - the same contract as the in-kernel loader).
+# -nostdlib keeps the images free of libc runtime dependencies (crt, gcc
+# support libs, __gmon_start__...) that no axiome binary ever has.
+$(BUILD_DIR)/tests/dynlink_fixture_lib.sl: tests/dynlink_fixture_lib.c
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) -fPIC -shared -nostdlib \
+		-Wl,-soname,dynlink_fixture_lib.sl -o $@ $<
+
+$(BUILD_DIR)/tests/dynlink_fixture_app: tests/dynlink_fixture_app.c \
+		$(BUILD_DIR)/tests/dynlink_fixture_lib.sl
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) -fPIC -pie -nostdlib -Wl,--hash-style=sysv \
+		-Wl,-e,main -o $@ $< $(BUILD_DIR)/tests/dynlink_fixture_lib.sl
+
+$(BUILD_DIR)/tests/dynlink_regress_test: tests/dynlink_regress_test.c kernel/dynlink.c \
+		$(BUILD_DIR)/tests/dynlink_fixture_app $(BUILD_DIR)/tests/dynlink_fixture_lib.sl
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ tests/dynlink_regress_test.c kernel/dynlink.c
 
 $(BUILD_DIR)/tests/libc_string_test: tests/libc_string_test.c \
 		kernel/userspace/libc/string.c kernel/userspace/libc/stdlib.c $(LIBC_STUBS)

@@ -9,11 +9,66 @@
 #define ELFDATA2LSB 1
 #define EM_X86_64   62
 
-#define PT_LOAD 1
+#define PT_LOAD     1
+#define PT_DYNAMIC  2
+#define PT_INTERP   3
 
 #define PF_X 1
 #define PF_W 2
 #define PF_R 4
+
+/* Dynamic array tags (subset used by the in-kernel loader). */
+#define DT_NULL     0
+#define DT_NEEDED   1
+#define DT_PLTRELSZ 2
+#define DT_PLTGOT   3
+#define DT_HASH     4
+#define DT_STRTAB   5
+#define DT_SYMTAB   6
+#define DT_RELA     7
+#define DT_RELASZ   8
+#define DT_RELAENT  9
+#define DT_STRSZ    10
+#define DT_SYMENT   11
+#define DT_PLTREL   20
+#define DT_JMPREL   23
+
+/* .dynsym symbol table entry. */
+struct elf64_sym {
+    uint32_t st_name;
+    uint8_t  st_info;
+    uint8_t  st_other;
+    uint16_t st_shndx;
+    uint64_t st_value;
+    uint64_t st_size;
+};
+
+#define SHN_UNDEF 0
+
+#define STT_FUNC  2
+#define STT_OBJECT 1
+#define STT_NOTYPE 0
+
+#define ELF64_ST_TYPE(i)    ((i) & 0xf)
+#define ELF64_ST_BIND(i)    ((i) >> 4)
+
+#define STB_GLOBAL 1
+
+/* RELA relocation entry. */
+struct elf64_rela {
+    uint64_t r_offset;
+    uint64_t r_info;
+    int64_t  r_addend;
+};
+
+#define ELF64_R_SYM(i)  ((i) >> 32)
+#define ELF64_R_TYPE(i) ((i) & 0xffffffffUL)
+
+/* x86-64 relocations understood by the loader. */
+#define R_X86_64_64        1
+#define R_X86_64_GLOB_DAT  6
+#define R_X86_64_JUMP_SLOT 7
+#define R_X86_64_RELATIVE  8
 
 struct elf64_ehdr {
     uint32_t ei_magic;
@@ -48,6 +103,32 @@ struct elf64_phdr {
     uint64_t p_memsz;
     uint64_t p_align;
 };
+
+/* Dynamic array entry (.dynamic). */
+struct elf64_dyn {
+    int64_t d_tag;
+    union {
+        uint64_t d_val;
+        uint64_t d_ptr;
+    } d_un;
+};
+
+/* Section header (used to size .dynsym). */
+struct elf64_shdr {
+    uint32_t sh_name;
+    uint32_t sh_type;
+    uint64_t sh_flags;
+    uint64_t sh_addr;
+    uint64_t sh_offset;
+    uint64_t sh_size;
+    uint32_t sh_link;
+    uint32_t sh_info;
+    uint64_t sh_addralign;
+    uint64_t sh_entsize;
+};
+
+#define SHT_RELA    4
+#define SHT_DYNSYM  11
 
 struct mmu_root;
 
