@@ -24,6 +24,14 @@
 #define X86_PTE_GLOBAL  (1UL << 8)
 #define X86_PTE_NX      (1UL << 63)
 
+/* Physical-frame address bits of a page-table entry.  Masks off CPU flag
+   bits (PCD/PWT/PAT/PAT_LARGE at bit 12, NX at bit 63, ...) that overlap or
+   sit above the address field, so `entry & X86_PTE_ADDR_MASK` is always the
+   canonical physical address of the referenced frame/table.  Upper- and
+   leaf-level entries legitimately carry NX (bit 63) and PAT_LARGE (bit 12),
+   so raw `& ~0xFFF` is *not* a valid way to recover an address. */
+#define X86_PTE_ADDR_MASK (((1ULL << 52) - 1) & ~0xFFFULL & ~X86_PTE_NX)
+
 #define IA32_PAT_MSR 0x277u
 #define PAT_UC    0x00u
 #define PAT_WC    0x01u

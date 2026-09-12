@@ -1,6 +1,7 @@
 #include "e1000.h"
 #include "net_buf.h"
 #include "netdev.h"
+#include "dhcp.h"
 #include "net_util.h"
 #include "pci.h"
 #include "vmm.h"
@@ -152,23 +153,16 @@ static void e1000_enable(struct e1000_softc *sc)
     e1000_write(sc, E1000_TCTL, E1000_TCTL_EN | E1000_TCTL_PSP |
                                  E1000_TCTL_CT | E1000_TCTL_COLD);
 
-    /* Enable all interrupts we care about. */
-    e1000_write(sc, E1000_IMS, E1000_ICR_RXT0 | E1000_ICR_TXDW |
-                                E1000_ICR_LSC | E1000_ICR_INTA);
-}
-
-/* ---- IRQ handler (runs in IRQ context — keep minimal) ---- */
-static void e1000_irq_handler(void)
-{
-    uint32_t icr = e1000_read(&g_e1000_sc, E1000_ICR);
-
-    /* RX and TX processing is done in the main poll loop.
-       We just need to acknowledge the interrupt here. */
-
-    if (icr & E1000_ICR_LSC)
-    {
-        /* Link status change — nothing to do in the minimal driver. */
-    }
+    /* IMPORTANT: the e1000 works in fully polled mode here — RX is drained
+       by e1000_rx_poll() (registered with netdev_register_poll) and TX is
+       descriptor-based with no completion wait.  We therefore never enable
+       NIC interrupts (IMS stays 0), and the IRQ line stays masked in the
+       I/O APIC.  If IMS bit(s) were set or IRQ 11 unmasked without a
+       registered handler + IDT gate, the NIC's link-status / TX-done
+       interrupts would fire into an unimplemented IDT vector and corrupt
+       the machine (observed as random #UD crashes and kernel-thread
+       stalls on first network traffic). */
+    e1000_write(sc, E1000_IMS, 0);
 }
 
 /* ---- RX processing (called from softirq or poll loop) ---- */
@@ -205,8 +199,10 @@ void e1000_rx_poll(void)
         struct mbuf *new_m = mbuf_alloc();
         if (new_m)
         {
-            memcpy(new_m->data, m->data, len);
-            new_m->len = len;
+            /* Re-arm the descriptor with the fresh buffer and hand the
+               NIC-written buffer to the stack directly (no copy).  The old
+               code copied into new_m and then dropped `m`, leaking one
+               mbuf per received packet until the pool ran dry. */
             sc->rx_mbufs[idx] = new_m;
             sc->rx_ring[idx].addr = new_m->phys;
             sc->rx_ring[idx].status = 0;
@@ -217,7 +213,7 @@ void e1000_rx_poll(void)
                descriptors [RDH, idx), which includes the re-armed `idx` once
                the hardware wraps past it. */
             e1000_write(sc, E1000_RDT, idx);
-            netdev_rx_poll(&sc->netdev, new_m);
+            netdev_rx_poll(&sc->netdev, m);
         }
         else
         {
@@ -229,8 +225,13 @@ void e1000_rx_poll(void)
     }
 }
 
-/* ---- TX path (called from ethernet_send → netdev->tx) ---- */
-static int e1000_tx(struct netdev *dev, struct mbuf *m)
+/* ---- TX path (called from ethernet_send → netdev->tx) ----
+   NOT static: the module loader stores its address into netdev.tx (.data).
+   A static function's address is resolved to a raw object offset by the
+   assembler (no .rela entry), so the loader could not rebase it -- the first
+   transmit would call garbage.  Keep it exported so the R_X86_64_64
+   relocation survives and module.c rebases it to the loaded module. */
+int e1000_tx(struct netdev *dev, struct mbuf *m)
 {
     struct e1000_softc *sc = (struct e1000_softc *)dev->priv;
     if (!sc) { mbuf_free(m); return -1; }
@@ -373,8 +374,12 @@ int e1000_probe(struct pci_device *pdev)
            ip4_octet(sc->netdev.ip, 0), ip4_octet(sc->netdev.ip, 1),
            ip4_octet(sc->netdev.ip, 2), ip4_octet(sc->netdev.ip, 3));
 
-    /* Install IRQ handler (legacy INTx via I/O APIC). */
-    ioapic_mask(sc->irq, 0);  /* unmask */
+    /* Kick off the DHCP client to obtain a lease (overrides the static IP). */
+    dhcp_start(&sc->netdev);
+
+    /* No IRQ handler is installed (see e1000_enable): the device is fully
+       polled, so the IRQ line must stay masked to avoid unhandled
+       interrupts. */
 
     sc->pci_bus = pdev->bus; sc->pci_dev = pdev->dev; sc->pci_func = pdev->func;
     sc->bound = 1;

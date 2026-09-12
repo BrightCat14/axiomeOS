@@ -33,6 +33,13 @@ void ipv4_init(void);
 int ipv4_send(struct netdev *dev, ip4_addr_t dst, uint8_t proto,
               struct mbuf *payload);
 
+/* Send an IPv4 packet with explicit destination MAC and source address.
+   Used for DHCP, which talks to 255.255.255.255 from 0.0.0.0 (no ARP, no
+   routing table) and for testing.  Takes ownership of `payload`. */
+int ipv4_send_direct(struct netdev *dev, const uint8_t *dst_mac,
+                     ip4_addr_t src, ip4_addr_t dst, uint8_t proto,
+                     struct mbuf *payload);
+
 /* Receive callback — called from ethernet layer. */
 void ipv4_rx(struct netdev *dev, struct mbuf *m);
 

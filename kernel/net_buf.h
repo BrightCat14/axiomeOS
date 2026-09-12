@@ -27,6 +27,8 @@ struct mbuf {
     uint32_t refcount;      /* reference count (clone support) */
     struct mbuf *next;      /* chain link / free-list link */
     struct mbuf *next_seg;  /* fragment chain (unused initially) */
+    uint32_t rx_src_ip;     /* RX metadata: source IPv4 (net order) */
+    uint16_t rx_src_port;   /* RX metadata: source transport port */
 };
 
 /* Initialise the mbuf pool (called once at boot). */
@@ -44,7 +46,8 @@ void mbuf_free(struct mbuf *m);
 /* Increment refcount. */
 void mbuf_ref(struct mbuf *m);
 
-/* Clone an mbuf (shallow copy — shares data buffer, refcount bumped). */
+/* Clone an mbuf (deep copy — the clone owns its own data buffer and fragment
+   chain, so both can be freed independently). */
 struct mbuf *mbuf_clone(struct mbuf *m);
 
 /* Append `len` bytes from `src` to the tail of `m`, allocating more mbufs
@@ -56,5 +59,10 @@ size_t mbuf_total_len(struct mbuf *m);
 
 /* Copy data out of an mbuf chain into a flat buffer.  Returns bytes copied. */
 size_t mbuf_copyout(void *dst, size_t dst_len, struct mbuf *m, size_t off);
+
+/* Streaming checksum over `len` bytes of an mbuf chain starting at byte
+   offset `off`.  The caller seeds the accumulator (e.g. with the TCP/UDP
+   pseudo-header) and folds the returned value with csum_fold(). */
+uint32_t mbuf_csum_acc(uint32_t sum, struct mbuf *m, size_t off, size_t len);
 
 #endif

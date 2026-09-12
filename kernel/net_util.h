@@ -25,6 +25,38 @@ static inline uint16_t inet_csum(const void *data, size_t len)
     return (uint16_t)~sum;
 }
 
+/* Streaming variants.  A checksum over a buffer that is not contiguous (e.g.
+   a TCP payload split across chained mbufs) is accumulated piecewise with
+   csum_acc() and finished with csum_fold(), which yields exactly the same
+   result as inet_csum() over the whole range. */
+static inline uint32_t csum_acc(uint32_t sum, const void *data, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    /* Keep the running sum folded so the accumulator can never overflow. */
+    while (len > 1)
+    {
+        sum += (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+        if (sum > 0xFFFF) sum = (sum & 0xFFFF) + (sum >> 16);
+        p += 2;
+        len -= 2;
+    }
+    if (len == 1) sum += (uint16_t)p[0];
+    return sum;
+}
+
+static inline uint16_t csum_fold(uint32_t sum)
+{
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return (uint16_t)sum;
+}
+
+/* Finish a streamed checksum: complements the folded accumulator, exactly as
+   inet_csum() does for a contiguous buffer. */
+static inline uint16_t csum_finish(uint32_t sum)
+{
+    return (uint16_t)~csum_fold(sum);
+}
+
 /* ---- MAC address ---- */
 #define ETH_ALEN 6
 #define ETH_BROADCAST "\xff\xff\xff\xff\xff\xff"

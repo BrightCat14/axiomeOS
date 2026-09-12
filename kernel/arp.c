@@ -1,5 +1,6 @@
 #include "arp.h"
 #include "ethernet.h"
+#include "netdev.h"
 #include "net_buf.h"
 #include "net_util.h"
 #include "string.h"
@@ -171,6 +172,13 @@ static void arp_handle_rx(struct netdev *dev, struct mbuf *m)
 
 int arp_resolve(struct netdev *dev, ip4_addr_t ip, uint8_t *mac_out)
 {
+    /* Talking to ourselves (loopback, or our own IP on a NIC) needs no ARP. */
+    if (ip == dev->ip)
+    {
+        mac_copy(mac_out, dev->mac);
+        return 0;
+    }
+
     /* Check cache first. */
     if (arp_lookup(ip, mac_out) == 0)
         return 0;
@@ -178,9 +186,14 @@ int arp_resolve(struct netdev *dev, ip4_addr_t ip, uint8_t *mac_out)
     /* Send ARP request.  In a single-core OS we poll in a spin loop. */
     arp_send_request(dev, ip);
 
-    /* Spin-wait for reply (up to ~500ms). */
+    /* Spin-wait for reply (up to ~500ms).  Pump the RX poll loop while
+       waiting — otherwise the reply sits in the NIC ring undrained until
+       after we have already timed out (the main loop is the only other
+       poller and we are not yielding to it here). */
     for (int i = 0; i < 50000; i++)
     {
+        if ((i & 0xFF) == 0)
+            netdev_poll_all();
         if (arp_lookup(ip, mac_out) == 0)
             return 0;
         /* Brief delay. */

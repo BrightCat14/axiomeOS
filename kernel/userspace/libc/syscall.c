@@ -214,6 +214,17 @@ int sock_close(int fd)
     return (int)syscall(SYS_SOCKET_CLOSE, (long)fd, 0, 0, 0, 0, 0);
 }
 
+int dns_resolve(const char *name, uint32_t *ip_out)
+{
+    return (int)syscall(SYS_DNS_RESOLVE, (long)name, (long)ip_out, 0, 0, 0, 0);
+}
+
+int ping(uint32_t dst_be32, uint32_t timeout_ms, uint32_t *rtt_us)
+{
+    return (int)syscall(SYS_PING, (long)dst_be32, (long)timeout_ms,
+                        (long)rtt_us, 0, 0, 0);
+}
+
 uid_t getuid(void)  { return (uid_t)syscall(SYS_GETUID, 0,0,0,0,0,0); }
 uid_t geteuid(void) { return (uid_t)syscall(SYS_GETEUID, 0,0,0,0,0,0); }
 gid_t getgid(void)  { return (gid_t)syscall(SYS_GETGID, 0,0,0,0,0,0); }

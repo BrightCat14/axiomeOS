@@ -1,4 +1,5 @@
 #include "net_buf.h"
+#include "net_util.h"
 #include "pmm.h"
 #include "vmm.h"
 #include "string.h"
@@ -49,6 +50,8 @@ struct mbuf *mbuf_alloc(void)
         m->len = 0;
         m->data_off = 0;
         m->refcount = 1;
+        m->rx_src_ip = 0;
+        m->rx_src_port = 0;
     }
     spin_unlock_irq(&g_mbuf_lock, flags);
     return m;
@@ -96,14 +99,32 @@ struct mbuf *mbuf_clone(struct mbuf *m)
     if (!m) return 0;
     struct mbuf *c = mbuf_alloc();
     if (!c) return 0;
-    c->data = m->data;
-    c->phys = m->phys;
+    /* Deep copy: the clone gets its own data buffer (mbuf_alloc already
+       assigned c->data/c->phys), so the two mbufs never share storage and
+       both are safe to free independently. */
+    memcpy(c->data, m->data, MBUF_DATA_SIZE);
     c->data_off = m->data_off;
     c->len = m->len;
-    c->refcount = 1; /* we share the buffer */
+    c->refcount = 1;
     c->next_seg = 0;
-    /* Don't bump refcount — we use a separate refcount per clone.  When the
-       clone is freed, the original's buffer is not returned to the pool. */
+
+    struct mbuf *dst = c;
+    for (struct mbuf *seg = m->next_seg; seg; seg = seg->next_seg)
+    {
+        struct mbuf *dc = mbuf_alloc();
+        if (!dc)
+        {
+            mbuf_free(c);          /* frees the copied chain too */
+            return 0;
+        }
+        memcpy(dc->data, seg->data, MBUF_DATA_SIZE);
+        dc->data_off = seg->data_off;
+        dc->len = seg->len;
+        dc->refcount = 1;
+        dc->next_seg = 0;
+        dst->next_seg = dc;
+        dst = dc;
+    }
     return c;
 }
 
@@ -168,4 +189,25 @@ size_t mbuf_copyout(void *dst, size_t dst_len, struct mbuf *m, size_t off)
         m = m->next_seg;
     }
     return copied;
+}
+
+uint32_t mbuf_csum_acc(uint32_t sum, struct mbuf *m, size_t off, size_t len)
+{
+    while (m && len > 0)
+    {
+        if (off < m->len)
+        {
+            size_t avail = m->len - off;
+            size_t n = (len < avail) ? len : avail;
+            sum = csum_acc(sum, m->data + m->data_off + off, n);
+            len -= n;
+            off = 0;
+        }
+        else
+        {
+            off -= m->len;
+        }
+        m = m->next_seg;
+    }
+    return sum;
 }

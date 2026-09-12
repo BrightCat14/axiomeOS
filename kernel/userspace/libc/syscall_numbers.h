@@ -100,6 +100,10 @@
 /* ---- verify a username/password pair via the kernel (issue #32) ---- */
 #define SYS_AUTHENTICATE  67
 
-#define __SYS_LAST        68   /* one past the highest number */
+/* ---- networking services (Phase 13) ---- */
+#define SYS_DNS_RESOLVE   68   /* dns_resolve(name, ip_out) */
+#define SYS_PING          69   /* ping(dst_be32, timeout_ms, *rtt_us) */
+
+#define __SYS_LAST        70   /* one past the highest number */
 
 #endif

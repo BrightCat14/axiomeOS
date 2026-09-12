@@ -102,6 +102,10 @@ long sock_send(int fd, const void *buf, size_t len);
 long sock_recv(int fd, void *buf, size_t max);
 int sock_close(int fd);
 
+/* ---- DNS / ICMP (Phase 13) ---- */
+int dns_resolve(const char *name, uint32_t *ip_out);
+int ping(uint32_t dst_be32, uint32_t timeout_ms, uint32_t *rtt_us);
+
 /* Must match kernel/sched.h struct proc_info exactly */
 struct proc_info {
     int pid;

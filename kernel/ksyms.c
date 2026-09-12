@@ -7,6 +7,7 @@
 #include "pci.h"
 #include "netdev.h"
 #include "net_buf.h"
+#include "dhcp.h"
 #include "driver.h"
 #include "ioapic.h"
 #include "hal/cshim.h"
@@ -65,6 +66,7 @@ KSYM(netdev_rx_poll);
 KSYM(mbuf_alloc);
 KSYM(mbuf_free);
 KSYM(mbuf_total_len);
+KSYM(dhcp_start);
 
 /* Interrupt control. */
 KSYM(ioapic_mask);

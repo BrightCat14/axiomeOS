@@ -41,7 +41,7 @@ ASM_OBJS := $(patsubst %.S, $(BUILD_DIR)/%.o, $(ASM_SRCS))
 # by the ELF loader. They are deliberately NOT embedded in the kernel image.
 USER_PROGS := init hello cat echo sh ls mkdir cp mv rm touch whoami uname \
 	login su chmod chown vfs_test ipc_test proc_test driver_test net_test \
-	kill kxtload kxtunload 	syslogd oobe date burn forkt
+	kill kxtload kxtunload 	syslogd oobe date burn forkt ping
 USER_ELFS := $(addprefix userspace/,$(addsuffix .elf,$(USER_PROGS)))
 
 # Every user binary is a PIE that depends on libc.sl (shared library).
@@ -82,11 +82,11 @@ $(BUILD_DIR)/kernel.elf: $(ASM_OBJS) $(C_OBJS) $(CXX_OBJS)
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -MMD -MP -MF $(@:.o=.d) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(@D)
@@ -122,3 +122,8 @@ userspace/%.elf: $(BUILD_DIR)/%_user.o $(CRT0_OBJ) $(LIBC_SL)
 clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C modules clean
+
+# Auto-generated header dependencies (see -MMD -MP on the compile rules
+# above): a header edit rebuilds every object that includes it, so struct
+# layout changes can never again leave stale .o files behind.
+-include $(C_OBJS:.o=.d) $(CXX_OBJS:.o=.d)

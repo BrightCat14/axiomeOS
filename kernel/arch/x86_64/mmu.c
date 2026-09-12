@@ -174,7 +174,7 @@ static int split_huge(uint64_t *entry, uint64_t base)
         return -1;
 
     uint64_t *pt = (uint64_t *)(uintptr_t)page;
-    uint64_t phys = old & ~0xFFF;
+    uint64_t phys = old & X86_PTE_ADDR_MASK;
     /* Preserve PWT/PCD (bits 3-4) and translate a large-page WC request
        (PAT_LARGE, bit 12) into the small-page PAT encoding (bit 7).
        Bit 7 of the old entry is PS, not PAT, so clear it first. */
@@ -217,7 +217,7 @@ static uint64_t *walk_page(struct mmu_root *root, uint64_t virt, int alloc)
         *entry = page | X86_PTE_PRESENT | X86_PTE_WRITE | X86_PTE_USER;
     }
 
-    uint64_t pdp_phys = *entry & ~0xFFF;
+    uint64_t pdp_phys = *entry & X86_PTE_ADDR_MASK;
     uint64_t *pdp = (uint64_t *)(uintptr_t)pdp_phys;
     entry = &pdp[idx3];
 
@@ -239,7 +239,7 @@ static uint64_t *walk_page(struct mmu_root *root, uint64_t virt, int alloc)
         *entry = page | X86_PTE_PRESENT | X86_PTE_WRITE | X86_PTE_USER;
     }
 
-    uint64_t pd_phys = *entry & ~0xFFF;
+    uint64_t pd_phys = *entry & X86_PTE_ADDR_MASK;
     uint64_t *pd = (uint64_t *)(uintptr_t)pd_phys;
     entry = &pd[idx2];
 
@@ -261,14 +261,14 @@ static uint64_t *walk_page(struct mmu_root *root, uint64_t virt, int alloc)
         *entry = page | X86_PTE_PRESENT | X86_PTE_WRITE | X86_PTE_USER;
     }
 
-    uint64_t pt_phys = *entry & ~0xFFF;
+    uint64_t pt_phys = *entry & X86_PTE_ADDR_MASK;
     uint64_t *pt = (uint64_t *)(uintptr_t)pt_phys;
     return &pt[idx1];
 }
 
 struct mmu_root *mmu_current_root(void)
 {
-    return (struct mmu_root *)(uintptr_t)(read_cr3() & ~0xFFFULL);
+    return (struct mmu_root *)(uintptr_t)(read_cr3() & X86_PTE_ADDR_MASK);
 }
 
 struct mmu_root *mmu_kernel_root(void)
@@ -338,7 +338,7 @@ int mmu_map(struct mmu_root *root, uint64_t virt, uint64_t phys, uint32_t flags)
     if (!pte) return -1;
     if (*pte & X86_PTE_PRESENT)
         return -1;
-    *pte = (phys & ~0xFFF) | to_x86_flags(flags);
+    *pte = (phys & X86_PTE_ADDR_MASK) | to_x86_flags(flags);
     if (root == kernel_root)
         flush_tlb();
     return 0;
@@ -364,7 +364,7 @@ uint64_t mmu_virt_to_phys(struct mmu_root *root, uint64_t virt)
     uint64_t *pte = walk_page(root, virt, 0);
     if (!pte || !(*pte & X86_PTE_PRESENT))
         return 0;
-    return (*pte & ~0xFFF) | (virt & 0xFFF);
+    return (*pte & X86_PTE_ADDR_MASK) | (virt & 0xFFF);
 }
 
 /* Non-allocating page-table walk: returns the PTE flags covering `virt`, or 0
@@ -378,21 +378,21 @@ static uint64_t range_pte(struct mmu_root *root, uint64_t virt)
     if (*entry & X86_PTE_HUGE)
         return *entry;
 
-    uint64_t *pdp = (uint64_t *)(uintptr_t)(*entry & ~0xFFF);
+    uint64_t *pdp = (uint64_t *)(uintptr_t)(*entry & X86_PTE_ADDR_MASK);
     entry = &pdp[(virt >> 30) & 0x1FF];
     if (!(*entry & X86_PTE_PRESENT))
         return 0;
     if (*entry & X86_PTE_HUGE)
         return *entry;
 
-    uint64_t *pd = (uint64_t *)(uintptr_t)(*entry & ~0xFFF);
+    uint64_t *pd = (uint64_t *)(uintptr_t)(*entry & X86_PTE_ADDR_MASK);
     entry = &pd[(virt >> 21) & 0x1FF];
     if (!(*entry & X86_PTE_PRESENT))
         return 0;
     if (*entry & X86_PTE_HUGE)
         return *entry;
 
-    uint64_t *pt = (uint64_t *)(uintptr_t)(*entry & ~0xFFF);
+    uint64_t *pt = (uint64_t *)(uintptr_t)(*entry & X86_PTE_ADDR_MASK);
     entry = &pt[(virt >> 12) & 0x1FF];
     if (!(*entry & X86_PTE_PRESENT))
         return 0;
@@ -433,7 +433,7 @@ int mmu_protect(struct mmu_root *root, uint64_t virt, uint32_t flags)
     uint64_t *pte = walk_page(root, virt, 0);
     if (!pte || !(*pte & X86_PTE_PRESENT))
         return -1;
-    uint64_t phys = *pte & ~0xFFF;
+    uint64_t phys = *pte & X86_PTE_ADDR_MASK;
     *pte = phys | to_x86_flags(flags);
     /* Always invalidate: when the target root is the active one (e.g. the ELF
        loader hardening .text while the new address space is live), stale TLB
@@ -477,7 +477,7 @@ static struct mmu_root *clone_level(struct mmu_root *src, int level, int deep_us
                 dst->entry[i] = e;
                 continue;
             }
-            uint64_t *next_src = (uint64_t *)(uintptr_t)(e & ~0xFFF);
+            uint64_t *next_src = (uint64_t *)(uintptr_t)(e & X86_PTE_ADDR_MASK);
             uint64_t *next_dst = (uint64_t *)(uintptr_t)clone_level(
                 (struct mmu_root *)next_src, level - 1, deep_user);
             if (!next_dst)
@@ -486,24 +486,10 @@ static struct mmu_root *clone_level(struct mmu_root *src, int level, int deep_us
         }
         else
         {
-            uint64_t *next_src = (uint64_t *)(uintptr_t)(e & ~0xFFF);
+            uint64_t *next_src = (uint64_t *)(uintptr_t)(e & X86_PTE_ADDR_MASK);
             uint64_t np = (uint64_t)pmm_alloc_frame();
             if (!np)
                 return 0;
-            {
-                static int dbg = 0;
-                uint64_t hi_src = ((uint64_t)next_src >> 48);
-                uint64_t hi_np  = (np >> 48);
-                if (dbg < 200)
-                {
-                    printk("CLONEDBG i=%d src=0x%lx np=0x%lx\n",
-                           i, (unsigned long)next_src, (unsigned long)np);
-                    dbg++;
-                }
-                if ((hi_src != 0 && hi_src != 0xffff) || (hi_np != 0 && hi_np != 0xffff))
-                    printk("CLONEDBG-BAD i=%d src=0x%lx np=0x%lx\n",
-                           i, (unsigned long)next_src, (unsigned long)np);
-            }
             __builtin_memcpy((void *)(uintptr_t)np, next_src, PAGE_SIZE);
             dst->entry[i] = np | (e & 0x1FF);
         }
@@ -518,35 +504,6 @@ struct mmu_root *mmu_new_user_root(void)
 
 struct mmu_root *mmu_clone_root(struct mmu_root *src)
 {
-    {
-        /* CLI0DBG: dump source leaf PTEs at PML4 idx 0..9 to find the corrupt entry */
-        for (int i4 = 0; i4 < 10; i4++)
-        {
-            uint64_t e4 = src->entry[i4];
-            if (!(e4 & 1) || !(e4 & 4))
-                continue;
-            uint64_t *pdp = (uint64_t *)(uintptr_t)(e4 & ~0xFFFULL);
-            for (int i3 = 0; i3 < 512; i3++)
-            {
-                uint64_t e3 = pdp[i3];
-                if (!(e3 & 1) || !(e3 & 4) || (e3 & 0x80))
-                    continue;
-                uint64_t *pd = (uint64_t *)(uintptr_t)(e3 & ~0xFFFULL);
-                for (int i2 = 0; i2 < 512; i2++)
-                {
-                    uint64_t e2 = pd[i2];
-                    if (!(e2 & 1) || !(e2 & 4) || (e2 & 0x80))
-                        continue;
-                    uint64_t *pt = (uint64_t *)(uintptr_t)(e2 & ~0xFFFULL);
-                    for (int i1 = 0; i1 < 512; i1++)
-                        if (pt[i1] & 1)
-                            printk("CLI0SRC i4=%d i3=%d i2=%d i1=%d pte=0x%lx\n",
-                                   i4, i3, i2, i1, (unsigned long)pt[i1]);
-                }
-            }
-        }
-        printk("CLI0SRC dump end\n");
-    }
     return clone_level(src, 4, 1);
 }
 
@@ -563,13 +520,13 @@ static void free_level(uint64_t *tbl, int level)
         {
             if ((level == 2) && (e & X86_PTE_HUGE))
                 continue;
-            uint64_t *next = (uint64_t *)(uintptr_t)(e & ~0xFFF);
+            uint64_t *next = (uint64_t *)(uintptr_t)(e & X86_PTE_ADDR_MASK);
             free_level(next, level - 1);
             pmm_free_frame(next);
         }
         else
         {
-            pmm_free_frame((void *)(uintptr_t)(e & ~0xFFF));
+            pmm_free_frame((void *)(uintptr_t)(e & X86_PTE_ADDR_MASK));
         }
     }
 }

@@ -17,6 +17,8 @@
 #include "fat32.h"
 #include "axiomefs.h"
 #include "socket.h"
+#include "dns.h"
+#include "icmp.h"
 #include "security.h"
 #include "module.h"
 #include "signal.h"
@@ -1284,6 +1286,43 @@ static uint64_t sys_socket_accept(uint64_t a1, uint64_t a2, uint64_t a3, uint64_
     return (uint64_t)sock_accept((int)a1);
 }
 
+/* ---- DNS / ICMP services (Phase 13) ---- */
+
+static uint64_t sys_dns_resolve(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a3; (void)a4; (void)a5;
+    char name[256];
+    long r = copy_user_str(a1, name, sizeof(name));
+    if (r < 0)
+        return (uint64_t)r;
+    ip4_addr_t ip = 0;
+    if (dns_resolve(netdev_up(), name, &ip) != 0)
+        return (uint64_t)-1;
+    if (a2)
+    {
+        r = copy_to_user((void *)a2, &ip, sizeof(ip));
+        if (r < 0)
+            return (uint64_t)r;
+    }
+    return 0;
+}
+
+static uint64_t sys_ping(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
+{
+    (void)a4; (void)a5;
+    uint32_t rtt = 0;
+    int rc = icmp_echo((ip4_addr_t)(uint32_t)a1, (uint32_t)a2, &rtt);
+    if (rc != 0)
+        return (uint64_t)-1;
+    if (a3)
+    {
+        long r2 = copy_to_user((void *)a3, &rtt, sizeof(rtt));
+        if (r2 < 0)
+            return (uint64_t)r2;
+    }
+    return 0;
+}
+
 /* ---- signals (Phase 11) ---- */
 
 static uint64_t sys_sigaction(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5)
@@ -2076,6 +2115,9 @@ static syscall_fn syscall_table[] = {
     [SYS_SOCKET_CLOSE]  = sys_socket_close,
     [SYS_SOCKET_LISTEN] = sys_socket_listen,
     [SYS_SOCKET_ACCEPT] = sys_socket_accept,
+    /* DNS / ICMP services (Phase 13) */
+    [SYS_DNS_RESOLVE]   = sys_dns_resolve,
+    [SYS_PING]          = sys_ping,
     [SYS_GETUID]  = sys_getuid,
     [SYS_GETEUID] = sys_geteuid,
     [SYS_GETGID]  = sys_getgid,

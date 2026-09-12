@@ -23,6 +23,7 @@ struct netdev {
     ip4_addr_t  ip;          /* IPv4 address (network order) */
     ip4_addr_t  netmask;
     ip4_addr_t  gateway;
+    ip4_addr_t  dns_server;  /* DNS resolver (from DHCP, 0 = none) */
     uint32_t    mtu;
     netdev_tx_fn tx;         /* driver-supplied TX entry point */
     void       *priv;        /* driver-private data (e.g. e1000_softc) */
@@ -37,6 +38,13 @@ struct netdev *netdev_find(const char *name);
 
 /* Return first registered device (for iteration). */
 struct netdev *netdev_first(void);
+
+/* Route selection: pick the device whose subnet contains `dst` (so loopback
+   traffic uses "lo" and not the NIC).  Falls back to the first device. */
+struct netdev *netdev_for_ip(ip4_addr_t dst);
+
+/* Return a usable unicast device (skips "lo"); used for DHCP/DNS config. */
+struct netdev *netdev_up(void);
 
 /* Called by the driver when a packet has been received.  Dispatches through
    the protocol stack (ethernet → ARP / IPv4 → …). */
