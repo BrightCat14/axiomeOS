@@ -62,4 +62,8 @@ void driver_init(void);
 void sata_driver_init(void);
 void nvme_driver_init(void);
 
+/* DRI device for the Mesa bring-up (kernel/dri.c). No PCI dependence;
+   always registered so softpipe has a target once GOP is live. */
+void dri_init(void);
+
 #endif

@@ -351,6 +351,9 @@ void driver_init(void)
     t->ops.read = tty_read; t->ops.write = tty_write;
     device_register(t);
 
+    /* DRI render node for Mesa softpipe (no PCI dependence). */
+    dri_init();
+
     printk("DRV: framework initialized\n");
 
     /* Probe drivers against the devices enumerated by pci_init(). */

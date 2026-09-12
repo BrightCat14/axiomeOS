@@ -1,9 +1,13 @@
 # Porting Mesa to axiomeOS
 
-Full Mesa cannot be vendored in one patch (millions of lines, needs LLVM,
-libdrm, wayland-style winsys). The viable path is: keep Mesa in userspace
-as a ported library, give it the smallest kernel surface that satisfies a
-software rasterizer first, then accelerate.
+Mesa is vendored as a pinned submodule (`ports/mesa`, tag mesa-26.2.1 —
+see `ports/README.md` + `ports/mesa.version`); axiome glue lives in
+`ports/mesa-axiome/` (client lib, winsys guide, Meson cross file). Never
+commit edits inside `ports/mesa/` — keep them as patches under
+`ports/mesa-axiome/patches/` (see `ports/mesa-axiome/WINSYS.md`).
+
+The rule stays: keep Mesa in userspace as a ported library on the smallest
+kernel surface that satisfies a software rasterizer first, then accelerate.
 
 ## Phase 0 — what this tree already provides
 
@@ -14,24 +18,29 @@ software rasterizer first, then accelerate.
 * `GopDisplay::cpu_base()`: WC or back-buffer staging pointer Mesa renders
   into; `present()` flushes with `sfence`.
 
-## Phase 1 — kernel `/dev/dri/card0` (small, do here)
+## Phase 1 — kernel `/Devices/dri0` (landed)
 
-1. New `kernel/dri.c` char device implementing `mesa_abi.h` on top of
-   `gfx::display_manager()`:
-   * `GET_MODE` -> active `GfxMode`.
-   * `DUMB_CREATE` -> `pmm_alloc_frames()` + `vmm_mmap_phys()` staging
-     buffer, return handle/pitch/size.
-   * `DUMB_MAP` -> offset for the existing `mmap` dev-op.
-   * `PRESENT` -> `IDisplay::blit()` + `present()`.
-2. New syscalls (or `ioctl` multiplex on the fd): reuse `device_register()`
-   + `dev_ops::{read,write,mmap}` so Mesa opens `/dev/dri/card0` like any
-   other device.
-3. Test without Mesa: a `userspace/gfx_test.c` that creates a dumb buffer,
-   paints a gradient, presents — proves the ABI before Mesa enters.
+`kernel/dri.c` (registered from `driver_init()` via `dri_init()`):
+* `read()` -> `struct axdri_mode` of the active display (GET_MODE).
+* `write()` -> one `struct axdri_cmd` per call (`kernel/axdri_cmd.h`):
+  DUMB_CREATE (in-out reply: pitch/handle/size), PRESENT (blit + flush),
+  DUMB_DESTROY. DUMB_MAP needs no command — the `mmap()` offset encodes
+  the handle (`axdri_mmap_off()`).
+* `mmap()` -> maps dumb-buffer frames into the caller (`MMU_USER|WRITE`).
+* Transport test: `tests/axdri_cmd_test.c` (wire encoding, both sides).
+* Proven in QEMU: `kernel/userspace/gfx_test.c` (shipped as `/Binaries/gfx_test`)
+  runs GET_MODE -> CREATE -> MMAP (at the `AXDRI_MAP_HINT` window, PML4[4] —
+  dri_mmap rejects supervisor PML4s) -> paint -> readback -> PRESENT ->
+  DESTROY and prints `dri: PASS`. Note: headless run, on-screen pixels not
+  visually confirmed yet.
 
-## Phase 2 — Mesa userspace port (build outside the kernel)
+## Phase 2 — Mesa userspace port (scaffolded, not yet built)
 
-1. Cross-build Mesa with the axiome toolchain:
+`ports/mesa-axiome/` holds the client (`axdri.{h,c}` against the axiome
+libc: `open/read/write` + raw `SYS_MMAP`), the winsys recipe (`WINSYS.md`:
+new `src/gallium/winsys/axiome/` softpipe target + EGL hooks, applied as
+rebaseable patches), and the configure entry (`build-mesa.sh`,
+`meson-cross-axiome.ini`):
    `meson setup build -Dgallium-drivers=softpipe -Dvulkan-drivers= -Dosmesa=true -Dllvm=disabled`
    softpipe needs no LLVM/JIT and no libdrm.
 2. Add `src/gallium/winsys/axiome/` (~300 lines): implement
@@ -54,8 +63,8 @@ software rasterizer first, then accelerate.
 
 ## What NOT to do
 
-* Do not vendor Mesa source into this repo (use a ports/ manifest or
-  submodule when Phase 2 starts).
+* Do not commit edits inside `ports/mesa/` (patches go to
+  `ports/mesa-axiome/patches/`).
 * Do not put rasterization in the kernel: kernel stays dumb buffers +
   present; all GL runs in userspace.
 * Do not write an Intel modeset + Mesa iris port simultaneously — land

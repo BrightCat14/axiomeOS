@@ -90,11 +90,14 @@ $(DISK_PATH): kernel bootloader $(BUILD_DIR)/kernel/mkfs_axiomefs $(BOOT_FAT) $(
 	else \
 		overlay_boot=0; overlay_root=0; \
 	fi; \
-	if [ "$$overlay_boot" -eq 1 ] || [ $(BOOT_FAT) -nt "$$target" ]; then \
+	need_boot=$$overlay_boot; need_root=$$overlay_root; \
+	[ $(BOOT_FAT) -nt "$$target" ] && need_boot=1; \
+	[ $(ROOT_AXFS) -nt "$$target" ] && need_root=1; \
+	if [ "$$need_boot" -eq 1 ]; then \
 		printf '%s\n' 'disk.img: overlay BOOT partition'; \
 		dd if=$(BOOT_FAT) of="$$target" bs=512 seek=$(BOOT_PART_LBA) conv=notrunc 2>/dev/null; \
 	fi; \
-	if [ "$$overlay_root" -eq 1 ] || [ $(ROOT_AXFS) -nt "$$target" ]; then \
+	if [ "$$need_root" -eq 1 ]; then \
 		printf '%s\n' 'disk.img: overlay ROOT partition'; \
 		dd if=$(ROOT_AXFS) of="$$target" bs=512 seek=$(ROOT_PART_LBA) conv=notrunc 2>/dev/null; \
 	fi; \
@@ -155,7 +158,7 @@ LIBC_TESTS := \
 	$(BUILD_DIR)/tests/libc_time_test \
 	$(BUILD_DIR)/tests/libc_stdio_test
 
-TEST_BINS := $(KERNEL_TESTS) $(LIBC_TESTS) $(BUILD_DIR)/tests/gfx_clip_test
+TEST_BINS := $(KERNEL_TESTS) $(LIBC_TESTS) $(BUILD_DIR)/tests/gfx_clip_test $(BUILD_DIR)/tests/axdri_cmd_test
 
 .PHONY: test test-hid
 
@@ -170,6 +173,10 @@ $(BUILD_DIR)/tests/hid_boot_test: tests/hid_boot_test.c kernel/hid_boot.c
 $(BUILD_DIR)/tests/gfx_clip_test: tests/gfx_clip_test.c kernel/gfx/gfx_types.h
 	@mkdir -p $(@D)
 	g++ -std=c++17 -O2 -Wall -Wextra -Werror -fno-builtin $(KERNEL_INC) -o $@ $<
+
+$(BUILD_DIR)/tests/axdri_cmd_test: tests/axdri_cmd_test.c kernel/axdri_cmd.h ports/mesa-axiome/axdri.c ports/mesa-axiome/axdri.h
+	@mkdir -p $(@D)
+	$(HOSTCC) $(TEST_CFLAGS) -DAXDRI_HOST_TEST -DAXDRI_KERNEL_HEADERS -I$(REPO_ROOT) $(KERNEL_INC) -o $@ $<
 
 $(BUILD_DIR)/tests/kernel_string_test: tests/kernel_string_test.c kernel/string.c
 	@mkdir -p $(@D)

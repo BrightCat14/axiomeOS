@@ -1,0 +1,3 @@
+[submodule "ports/mesa"]
+	path = ports/mesa
+	url = https://gitlab.freedesktop.org/mesa/mesa.git

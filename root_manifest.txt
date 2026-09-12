@@ -61,6 +61,7 @@ Binaries/kxtload            0755  0  0  f  bin:kernel/userspace/kxtload.elf
 Binaries/kxtunload          0755  0  0  f  bin:kernel/userspace/kxtunload.elf
 Binaries/date               0755  0  0  f  bin:kernel/userspace/date.elf
 Binaries/ping               0755  0  0  f  bin:kernel/userspace/ping.elf
+Binaries/gfx_test           0755  0  0  f  bin:kernel/userspace/gfx_test.elf
 
 # Shared C library, loaded by the kernel's dynamic linker when a binary has a
 # DT_NEEDED entry (see kernel/dynlink.c search paths). Libraries live under
