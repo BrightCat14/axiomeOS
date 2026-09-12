@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void fb_init(uintptr_t addr, uint32_t width, uint32_t height,
              uint32_t pitch, uint8_t bpp, uint8_t type);
 void fb_init_buffers(void);
@@ -23,5 +27,13 @@ uint32_t fb_width(void);
 uint32_t fb_height(void);
 uint32_t fb_pitch(void);
 volatile void *fb_addr(void);
+
+/* CPU-visible staging buffer for the gfx abstraction (GopDisplay) and the
+   Mesa softpipe target. NULL until fb_init_buffers() succeeds. */
+uint8_t *fb_back_buffer_for_gfx(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

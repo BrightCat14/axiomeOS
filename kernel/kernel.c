@@ -34,6 +34,7 @@
 #include "mmap.h"
 #include "hal/cshim.h"
 #include "hal/hal_bootinfo.h"
+#include "gfx/manager.h"
 #include "xhci.h"
 
 void axboot_parse(struct axboot_info *info);
@@ -179,6 +180,13 @@ void kmain(struct axboot_info *info)
     procfs_init();
 
     pci_init();
+
+    /* Graphics stack: GOP is already live via fb_*; now register every
+       display backend and let the manager pick the best one. Intel/Bochs
+       are probe-only stubs today, so this logs what PCI saw and keeps GOP
+       as the scanout owner until native modeset lands. */
+    gfx_init();
+    printk("gfx: active='%s'\n", gfx_active_name());
 
     /* Network stack init: mbuf pool, loopback, protocol handlers.
        Must come before driver_init() because e1000 probe needs mbufs. */

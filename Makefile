@@ -155,7 +155,7 @@ LIBC_TESTS := \
 	$(BUILD_DIR)/tests/libc_time_test \
 	$(BUILD_DIR)/tests/libc_stdio_test
 
-TEST_BINS := $(KERNEL_TESTS) $(LIBC_TESTS)
+TEST_BINS := $(KERNEL_TESTS) $(LIBC_TESTS) $(BUILD_DIR)/tests/gfx_clip_test
 
 .PHONY: test test-hid
 
@@ -166,6 +166,10 @@ test: $(TEST_BINS)
 $(BUILD_DIR)/tests/hid_boot_test: tests/hid_boot_test.c kernel/hid_boot.c
 	@mkdir -p $(@D)
 	$(HOSTCC) $(TEST_CFLAGS) $(KERNEL_INC) -o $@ $^
+
+$(BUILD_DIR)/tests/gfx_clip_test: tests/gfx_clip_test.c kernel/gfx/gfx_types.h
+	@mkdir -p $(@D)
+	g++ -std=c++17 -O2 -Wall -Wextra -Werror -fno-builtin $(KERNEL_INC) -o $@ $<
 
 $(BUILD_DIR)/tests/kernel_string_test: tests/kernel_string_test.c kernel/string.c
 	@mkdir -p $(@D)

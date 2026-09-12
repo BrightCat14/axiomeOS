@@ -104,6 +104,7 @@ uint32_t fb_width(void)  { return fb.width; }
 uint32_t fb_height(void) { return fb.height; }
 uint32_t fb_pitch(void)  { return fb.pitch; }
 volatile void *fb_addr(void) { return fb.addr; }
+uint8_t *fb_back_buffer_for_gfx(void) { return fb.back_buffer; }
 
 static void mark_dirty(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
@@ -137,11 +138,32 @@ static void set_pixel(uint32_t x, uint32_t y, uint32_t color)
     if (x >= fb.width || y >= fb.height)
         return;
 
-    uint8_t *p = fb_ptr() + y * fb.pitch + x * (fb.bpp / 8);
-    p[0] = (uint8_t)(color >> 0);
-    p[1] = (uint8_t)(color >> 8);
-    p[2] = (uint8_t)(color >> 16);
-    p[3] = (uint8_t)(color >> 24);
+    /* The GOP path always hands us 32bpp (see bootloader/gop.c), but be
+       defensive: a future mode (24bpp) must not overflow into the next
+       pixel. Only 32bpp is accelerated; other depths fall back to a byte
+       writer. */
+    uint8_t *p = fb_ptr() + (size_t)y * fb.pitch + (size_t)x * (fb.bpp / 8);
+    if (fb.bpp == 32)
+    {
+        p[0] = (uint8_t)(color >> 0);
+        p[1] = (uint8_t)(color >> 8);
+        p[2] = (uint8_t)(color >> 16);
+        p[3] = (uint8_t)(color >> 24);
+    }
+    else if (fb.bpp == 24)
+    {
+        p[0] = (uint8_t)(color >> 0);
+        p[1] = (uint8_t)(color >> 8);
+        p[2] = (uint8_t)(color >> 16);
+    }
+    else
+    {
+        /* Unknown depth: best-effort 32-bit store, clipped to the row. */
+        size_t row_left = (size_t)fb.pitch - (size_t)x * (fb.bpp / 8);
+        size_t n = row_left < 4 ? row_left : 4;
+        for (size_t i = 0; i < n; i++)
+            p[i] = (uint8_t)(color >> (i * 8));
+    }
 }
 
 static void draw_glyph(char c, uint32_t cell_x, uint32_t cell_y, uint32_t fg, uint32_t bg)
@@ -169,29 +191,87 @@ static void draw_glyph(char c, uint32_t cell_x, uint32_t cell_y, uint32_t fg, ui
     mark_dirty(base_x, base_y, FONT_WIDTH, FONT_HEIGHT);
 }
 
-static void fill_row(uint32_t row, uint32_t color)
+static void __attribute__((unused)) fill_row(uint32_t row, uint32_t color)
 {
     if (row >= fb.num_rows)
         return;
     uint8_t *ptr = fb_ptr();
-    for (uint32_t y = row * FONT_HEIGHT; y < (row + 1) * FONT_HEIGHT; y++)
+    if (fb.bpp == 32)
     {
-        uint32_t *line = (uint32_t *)(ptr + y * fb.pitch);
-        for (uint32_t x = 0; x < fb.width; x++)
-            line[x] = color;
+        for (uint32_t y = row * FONT_HEIGHT; y < (row + 1) * FONT_HEIGHT; y++)
+        {
+            uint32_t *line = (uint32_t *)(ptr + (size_t)y * fb.pitch);
+            for (uint32_t x = 0; x < fb.width; x++)
+                line[x] = color;
+        }
+    }
+    else
+    {
+        /* Generic depth: paint pixel-by-pixel so pitch padding and short
+           pixels are never overrun. Slower, but only used on non-32bpp. */
+        for (uint32_t y = row * FONT_HEIGHT; y < (row + 1) * FONT_HEIGHT; y++)
+            for (uint32_t x = 0; x < fb.width; x++)
+                set_pixel(x, y, color);
     }
     mark_dirty(0, row * FONT_HEIGHT, fb.width, FONT_HEIGHT);
+}
+
+static void fill_lines(uint32_t y0, uint32_t y1, uint32_t color)
+{
+    /* Fill scanlines [y0, y1) with a solid color, honouring pitch. */
+    if (y0 >= fb.height)
+        return;
+    if (y1 > fb.height)
+        y1 = fb.height;
+    if (y0 >= y1)
+        return;
+    uint8_t *ptr = fb_ptr();
+    if (fb.bpp == 32 && color == 0)
+    {
+        __builtin_memset(ptr + (size_t)y0 * fb.pitch, 0,
+                         (size_t)(y1 - y0) * fb.pitch);
+        return;
+    }
+    if (fb.bpp == 32)
+    {
+        for (uint32_t y = y0; y < y1; y++)
+        {
+            uint32_t *line = (uint32_t *)(ptr + (size_t)y * fb.pitch);
+            for (uint32_t x = 0; x < fb.width; x++)
+                line[x] = color;
+        }
+        return;
+    }
+    for (uint32_t y = y0; y < y1; y++)
+        for (uint32_t x = 0; x < fb.width; x++)
+            set_pixel(x, y, color);
 }
 
 static void shift_rows_up(void)
 {
     uint8_t *ptr = fb_ptr();
-    for (uint32_t y = 0; y < (fb.num_rows - 1) * FONT_HEIGHT; y++)
+    uint32_t scroll_h = (fb.num_rows - 1) * FONT_HEIGHT;
+
+    /* Overlapping rows: dst < src, must be memmove (memcpy is UB and gcc
+       may vectorise it backwards, smearing glyphs). The kernel is
+       freestanding with no memmove, so copy forward byte-wise: dst < src
+       makes forward iteration safe. */
+    for (uint32_t y = 0; y < scroll_h; y++)
     {
-        __builtin_memcpy(ptr + y * fb.pitch, ptr + (y + FONT_HEIGHT) * fb.pitch, fb.pitch);
+        uint8_t *dst = ptr + (size_t)y * fb.pitch;
+        const uint8_t *src = ptr + (size_t)(y + FONT_HEIGHT) * fb.pitch;
+        for (size_t i = 0; i < fb.pitch; i++)
+            dst[i] = src[i];
     }
-    fill_row(fb.num_rows - 1, fb.bg_color);
-    mark_dirty(0, 0, fb.width, fb.height - FONT_HEIGHT);
+    /* Clear the freed text row AND any sub-glyph remainder strip below the
+       text grid (e.g. 600px height with 16px font leaves 8px that the old
+       code never scrolled or dirtied, leaving "uncleared" bars). */
+    fill_lines(scroll_h, fb.height, fb.bg_color);
+    /* One full-width dirty rect covers the scroll + clear, so fb_flush()
+       can never leave the remainder strip stale. */
+    fb.dirty = 0;
+    fb.dirty_w = 0;
+    mark_dirty(0, 0, fb.width, fb.height);
 }
 
 void fb_flush(void)
@@ -305,9 +385,10 @@ void fb_clear(void)
 {
     if (!fb.present)
         return;
-    uint8_t *ptr = fb_ptr();
-    size_t size = (size_t)fb.pitch * fb.height;
-    __builtin_memset(ptr, 0, size);
+    /* Honour bg_color (fast memset when black). The old code always cleared
+       to zero bytes, so a non-black bg left "uncleared" coloured streaks
+       after scroll vs clear. */
+    fill_lines(0, fb.height, fb.bg_color);
     fb.cursor_x = 0;
     fb.cursor_y = 0;
     mark_dirty(0, 0, fb.width, fb.height);

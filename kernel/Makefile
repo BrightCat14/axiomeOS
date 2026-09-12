@@ -30,7 +30,7 @@ C_SRCS := $(wildcard *.c) $(wildcard arch/x86_64/*.c)
 # switches their packaging tail from MODULE_INIT to *_driver_init().
 C_SRCS += modules/sata.c modules/nvme.c
 $(BUILD_DIR)/modules/sata.o $(BUILD_DIR)/modules/nvme.o: CFLAGS += -DAXIOME_BUILTIN_DRIVER
-CXX_SRCS := $(wildcard hal/*.cpp) $(wildcard arch/x86_64/hal/*.cpp)
+CXX_SRCS := $(wildcard hal/*.cpp) $(wildcard arch/x86_64/hal/*.cpp) $(wildcard gfx/*.cpp)
 ASM_SRCS := $(wildcard arch/x86_64/*.S)
 C_OBJS := $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SRCS))
 CXX_OBJS := $(patsubst %.cpp, $(BUILD_DIR)/%.o, $(CXX_SRCS))
